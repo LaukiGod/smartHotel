@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>ChefSense Dashboard</title>
+<style>
+body{
+font-family: Arial;
+background:#f4f6f9;
+margin:0;
+}
+
+header{
+background:#1f3c88;
+color:white;
+padding:15px;
+text-align:center;
+}
+
+.container{
+display:flex;
+}
+
+.sidebar{
+width:200px;
+background:#2f3542;
+color:white;
+height:100vh;
+padding:20px;
+}
+
+.sidebar p{
+margin:15px 0;
+}
+
+.main{
+flex:1;
+padding:20px;
+}
+
+.card{
+background:white;
+padding:20px;
+margin-bottom:20px;
+border-radius:8px;
+box-shadow:0 2px 6px rgba(0,0,0,0.1);
+}
+</style>
+</head>
+
+<body>
+
+<header>
+<h2>ChefSense AI Dashboard</h2>
+</header>
+
+<div class="container">
+
+<div class="sidebar">
+<p>Dashboard</p>
+<p>Inventory</p>
+<p>Recipes</p>
+<p>Allergen Monitor</p>
+<p>Waste Analytics</p>
+</div>
+
+<div class="main">
+
+<div class="card">
+<h3>Today's Forecast</h3>
+<p>Expected Guests: 140</p>
+<p>Peak Time: 8 PM</p>
+</div>
+
+<div class="card">
+<h3>Inventory Alerts</h3>
+<p>Tomatoes – Low Stock</p>
+<p>Milk – Expiring Tomorrow</p>
+</div>
+
+<div class="card">
+<h3>Allergen Alerts</h3>
+<p>Table 4 – Nut Allergy</p>
+<p>Table 8 – Gluten Free</p>
+</div>
+
+</div>
+
+</div>
+
+</body>
+</html>
