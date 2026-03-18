@@ -22,6 +22,11 @@ const dishSchema = new mongoose.Schema({
     }
   ],
 
+  recipe: {
+    type: String,
+    default: ""
+  },
+
   createdAt: {
     type: Date,
     default: Date.now

@@ -13,6 +13,11 @@ const tableSchema = new mongoose.Schema({
     default: "free"
   },
 
+  allergyAlert: {
+    type: Boolean,
+    default: false
+  },
+
   currentUser: {
     type: mongoose.Schema.Types.ObjectId,
     ref: "User"

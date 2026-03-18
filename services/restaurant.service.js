@@ -14,11 +14,18 @@ exports.getOrders = async () => {
 exports.updateOrderStatus = async (data) => {
   const { orderId, status } = data;
 
+  const validStatuses = ["pending", "preparing", "served"];
+  if (!validStatuses.includes(status)) {
+    throw new Error(`Invalid status. Must be one of: ${validStatuses.join(", ")}`);
+  }
+
   const order = await Order.findByIdAndUpdate(
     orderId,
     { status },
-    { new: true }
+    { new: true, runValidators: true }
   );
+
+  if (!order) throw new Error("Order not found");
 
   return { message: "Order status updated", order };
 };
@@ -49,7 +56,7 @@ exports.addItemsToInventory = async (data) => {
 
   // Check if any of these items already exist in DB
   const existing = await Inventory.find({
-    name: { $in: incomingNames }
+    name: { $in: incomingNames.map(n => new RegExp(`^${n}$`, "i")) }
   });
 
   if (existing.length) {
@@ -120,27 +127,54 @@ exports.addDish = async ({ name, price, recipe, ingredients }) => {
     throw new Error("ingredients must be an array of strings");
   }
 
-  let dish = await Dish.findOne({ name });
+  const existing = await Dish.findOne({ name: new RegExp(`^${name.trim()}$`, "i") });
 
-  if (dish) {
-    dish.price = price;
-    dish.recipe = recipe;
-    dish.ingredients = ingredients;
-    await dish.save();
-    return dish.dishId;
+  if (existing) {
+    throw new Error(`A dish named "${existing.name}" already exists. Use the update endpoint to modify it.`);
   }
 
   const lastDish = await Dish.findOne().sort({ dishId: -1 });
   const nextDishId = lastDish ? lastDish.dishId + 1 : 1;
 
-  dish = new Dish({
+  const dish = new Dish({
     dishId: nextDishId,
-    name,
+    name: name.trim(),
     price,
     recipe,
     ingredients
   });
 
   await dish.save();
-  return dish.dishId;
+  return dish;
+};
+
+exports.updateDish = async ({ dishId, name, price, recipe, ingredients }) => {
+  if (!dishId) {
+    throw new Error("dishId is required");
+  }
+
+  const updates = {};
+  if (name !== undefined) updates.name = name.trim();
+  if (price !== undefined) updates.price = price;
+  if (recipe !== undefined) updates.recipe = recipe;
+  if (ingredients !== undefined) {
+    if (!Array.isArray(ingredients)) {
+      throw new Error("ingredients must be an array of strings");
+    }
+    updates.ingredients = ingredients;
+  }
+
+  if (!Object.keys(updates).length) {
+    throw new Error("No fields provided to update");
+  }
+
+  const dish = await Dish.findOneAndUpdate(
+    { dishId },
+    updates,
+    { new: true, runValidators: true }
+  );
+
+  if (!dish) throw new Error(`Dish with id ${dishId} not found`);
+
+  return dish;
 };

@@ -4,6 +4,7 @@ const Order = require("../entities/order.entity");
 const Dish = require("../entities/dish.entity");
 const { checkAllergyRisk } = require("../utils/allergyChecker");
 const { isTableValid } = require("../utils/helpers");
+const mongoose = require("mongoose");
 
 exports.loginTable = async (data) => {
   const { tableNo, name, phoneNo } = data;
@@ -12,22 +13,13 @@ exports.loginTable = async (data) => {
     throw new Error("Invalid table number");
   }
 
-  if (!name) {
-    throw new Error("Name is required");
-  }
-
-  if (!phoneNo) {
-    throw new Error("Phone number is required");
-  }
+  if (!name) throw new Error("Name is required");
+  if (!phoneNo) throw new Error("Phone number is required");
 
   let table = await Table.findOne({ tableNo });
 
   if (!table) {
     table = await Table.create({ tableNo });
-  }
-
-  if (table.status === "occupied") {
-    throw new Error("Table already occupied");
   }
 
   const user = await User.create({
@@ -37,9 +29,17 @@ exports.loginTable = async (data) => {
     role: "user",
   });
 
-  table.status = "occupied";
-  table.currentUser = user._id;
-  await table.save();
+  // Atomic: only succeeds if table is currently "free"
+  const claimedTable = await Table.findOneAndUpdate(
+    { tableNo, status: "free" },
+    { status: "occupied", currentUser: user._id },
+    { new: true }
+  );
+
+  if (!claimedTable) {
+    await User.findByIdAndDelete(user._id); // roll back user creation
+    throw new Error("Table not available");
+  }
 
   return { message: "Table session started", user };
 };
