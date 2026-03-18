@@ -47,44 +47,92 @@ exports.loginTable = async (data) => {
 exports.setAllergies = async (data) => {
   const { tableNo, allergies } = data;
 
-  let currentTable = await Table.findOne({ tableNo });
-  if (!currentTable) {
-    throw new Error("Table not found");
+  // [Added] Basic validation
+  if (!tableNo) throw new Error("tableNo is required");
+  if (!Array.isArray(allergies)) throw new Error("allergies must be an array");
+
+  const session = await mongoose.startSession(); // [Added] start session
+  session.startTransaction(); // [Added]
+
+  try {
+    const currentTable = await Table.findOneAndUpdate(
+      { tableNo },
+      { allergyAlert: allergies.length > 0 },
+      {
+        new: true,
+        projection: { currentUser: 1 }, // [Added] fetch only needed field
+        session // [Added]
+      }
+    );
+
+    if (!currentTable) {
+      throw new Error("Table not found");
+    }
+
+    if (!currentTable.currentUser) { // [Added] safety check
+      throw new Error("No user assigned to this table");
+    }
+
+    const updatedUser = await User.findByIdAndUpdate(
+      currentTable.currentUser,
+      { allergies },
+      { new: true, session } // [Added]
+    );
+
+    if (!updatedUser) {
+      throw new Error("User not found");
+    }
+
+    await session.commitTransaction(); // [Added]
+    session.endSession(); // [Added]
+
+    return {
+      message: "Allergies updated successfully",
+      user: updatedUser // [Added] useful response
+    };
+
+  } catch (error) {
+    await session.abortTransaction(); // [Added]
+    session.endSession(); // [Added]
+    throw error; // [Modified] let controller handle it
   }
-
-  const user = await User.findByIdAndUpdate(
-    currentTable.currentUser,
-    { allergies },
-    { new: true }
-  );
-
-  return { message: "Allergies updated", user };
 };
 
 exports.getMenu = async () => {
   const dishes = await Dish.find();
-
   return dishes;
 };
 
 exports.orderFood = async (data) => {
-  const { tableNo, dishes, allergiesInput } = data;
+  const { tableNo, dishes } = data;
 
-  let ingredientNames = [];
+  // Populate currentUser to access their allergies
+  const table = await Table.findOne({ tableNo }).populate("currentUser");
+  if (!table) {
+    throw new Error(`Table ${tableNo} not found`);
+  }
 
-  // fetch dishes and ingredients
-  const dishDocs = await Dish.find({ _id: { $in: dishes } })
-    .populate("ingredients");
+  // Fetch dishes — ingredients is [String], so no populate needed
+  const dishDocs = await Dish.find({ _id: { $in: dishes } });
+  if (dishDocs.length !== dishes.length) {
+    throw new Error("One or more dishes not found");
+  }
 
-  dishDocs.forEach(dish => {
-    dish.ingredients.forEach(ing => {
-      ingredientNames.push(ing.name);
-    });
-  });
+  // Collect all ingredient names
+  const ingredientNames = dishDocs.flatMap(dish => dish.ingredients);
 
-  // check allergy risk
+  // Get allergies from populated user — default to [] if none
+  const allergiesInput = table.currentUser?.allergies || [];
+  console.log("User allergies:", allergiesInput);
+
+  // Check allergy risk — always run so allergyResult is always defined
   const allergyResult = checkAllergyRisk(allergiesInput, ingredientNames);
 
+  if (allergyResult.alert) {
+    console.warn("Allergy alert for table", tableNo, "matches:", allergyResult.matches);
+  }
+
+  // Create order
   const order = await Order.create({
     tableNo,
     dishes,
@@ -92,10 +140,13 @@ exports.orderFood = async (data) => {
     allergyAlert: allergyResult.alert
   });
 
+  // Mark table as occupied
+  await Table.findOneAndUpdate({ tableNo }, { status: "occupied" });
+
   return {
     message: "Order placed",
     allergyAlert: allergyResult.alert,
-    matchedIngredient: allergyResult.ingredient || null,
+    allergyMatches: allergyResult.matches,
     order
   };
 };

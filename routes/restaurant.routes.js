@@ -13,8 +13,8 @@ router.post("/order-status", restaurantController.updateOrderStatus);
 router.get("/alerts", restaurantController.getAllergyAlerts);
 
 // ingredient inventory
-router.post("/add-ingredient", restaurantController.addIngredient);
-router.get("/ingredients", restaurantController.getIngredients);
+router.post("/add-inventory", restaurantController.addItemsToInventory);
+router.get("/inventory", restaurantController.getInventoryItems);
 
 // table status
 router.get("/tables", restaurantController.getTables);

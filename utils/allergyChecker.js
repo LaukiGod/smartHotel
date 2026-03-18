@@ -1,20 +1,23 @@
 exports.checkAllergyRisk = (userAllergies = [], ingredientNames = []) => {
-  const allergies = userAllergies.map(a => a.toLowerCase());
-  const ingredients = ingredientNames.map(i => i.toLowerCase());
+  if (!userAllergies.length || !ingredientNames.length) {
+    return { alert: false, matches: [] };
+  }
 
-  for (let allergy of allergies) {
-    for (let ingredient of ingredients) {
+  const allergies = userAllergies.map(a => a.trim().toLowerCase());
+  const ingredients = ingredientNames.map(i => i.trim().toLowerCase());
+
+  const matches = [];
+
+  for (const allergy of allergies) {
+    for (const ingredient of ingredients) {
       if (ingredient.includes(allergy)) {
-        return {
-          alert: true,
-          matched: allergy,
-          ingredient
-        };
+        matches.push({ allergy, ingredient });
       }
     }
   }
 
   return {
-    alert: false
+    alert: matches.length > 0,
+    matches  // e.g. [{ allergy: "nut", ingredient: "peanut" }, ...]
   };
 };
