@@ -1,10 +1,13 @@
+// user.service.js — FIXED: removed mongoose transaction from setAllergies
+// Transactions require a MongoDB replica set. For a standalone MongoDB instance,
+// we do the two writes sequentially. The logic is identical, just no session/transaction.
+
 const User = require("../entities/user.entity");
 const Table = require("../entities/table.entity");
 const Order = require("../entities/order.entity");
 const Dish = require("../entities/dish.entity");
 const { checkAllergyRisk } = require("../utils/allergyChecker");
 const { isTableValid } = require("../utils/helpers");
-const mongoose = require("mongoose");
 
 exports.loginTable = async (data) => {
   const { tableNo, name, phoneNo } = data;
@@ -20,7 +23,7 @@ exports.loginTable = async (data) => {
     table = await Table.create({ tableNo });
   }
 
-  // Claim the table first — fail fast if occupied
+  // Claim the table atomically — only succeeds if currently free
   const claimedTable = await Table.findOneAndUpdate(
     { tableNo, status: "free" },
     { status: "occupied" },
@@ -29,7 +32,7 @@ exports.loginTable = async (data) => {
 
   if (!claimedTable) throw new Error("Table not available");
 
-  // Only create user after table is secured — nothing to roll back on failure
+  // Create user only after table is secured — nothing to roll back on failure
   const user = await User.create({ tableNo, name, phoneNo, role: "user" });
 
   // Attach user to table
@@ -45,24 +48,29 @@ exports.setAllergies = async (data) => {
   if (!tableNo) throw new Error("tableNo is required");
   if (!Array.isArray(allergies)) throw new Error("allergies must be an array");
 
-  const currentTable = await Table.findOne({ tableNo });
-  if (!currentTable) {
-    throw new Error("Table not found");
-  }
+  // Find the table and get its currentUser
+  const currentTable = await Table.findOneAndUpdate(
+    { tableNo },
+    { allergyAlert: allergies.length > 0 },
+    { new: true, projection: { currentUser: 1 } }
+  );
 
-  if (!currentTable.currentUser) {
-    throw new Error("No user logged in at this table");
-  }
+  if (!currentTable) throw new Error("Table not found");
+  if (!currentTable.currentUser) throw new Error("No user assigned to this table");
 
-  const user = await User.findById(currentTable.currentUser);
-  if (!user) {
-    throw new Error("User not found");
-  }
+  // Update the user's allergies
+  const updatedUser = await User.findByIdAndUpdate(
+    currentTable.currentUser,
+    { allergies },
+    { new: true }
+  );
 
-  user.allergies = allergies;
-  await user.save();
+  if (!updatedUser) throw new Error("User not found");
 
-  return { message: "Allergies updated", user };
+  return {
+    message: "Allergies updated successfully",
+    user: updatedUser,
+  };
 };
 
 exports.getMenu = async () => {
@@ -73,58 +81,43 @@ exports.getMenu = async () => {
 exports.orderFood = async (data) => {
   const { tableNo, dishes } = data;
 
-    if (!Array.isArray(dishes) || dishes.length === 0) {
+  if (!Array.isArray(dishes) || dishes.length === 0) {
     throw new Error("dishes must be a non-empty array");
   }
 
-  // Populate currentUser to access their allergies
   const table = await Table.findOne({ tableNo }).populate("currentUser");
-  if (!table) {
-    throw new Error(`Table ${tableNo} not found`);
-  }
+  if (!table) throw new Error(`Table ${tableNo} not found`);
 
-  // Guard: table must be active before an order can be placed
   if (table.status !== "occupied") {
     throw new Error(`Table ${tableNo} is not active`);
   }
 
-  // Fetch dishes — ingredients is [String], so no populate needed
   const dishDocs = await Dish.find({ _id: { $in: dishes } });
   if (dishDocs.length !== dishes.length) {
     throw new Error("One or more dishes not found");
   }
 
-  // Collect all ingredient names
-  const ingredientNames = dishDocs.flatMap(dish => dish.ingredients);
-
-  // Get allergies from populated user — default to [] if none
+  const ingredientNames = dishDocs.flatMap((dish) => dish.ingredients);
   const allergiesInput = table.currentUser?.allergies || [];
-  console.log("User allergies:", allergiesInput);
 
-  // Check allergy risk — always run so allergyResult is always defined
-  const allergyResult = checkAllergyRisk(allergiesInput, ingredientNames);
+  const allergyResult = await checkAllergyRisk(allergiesInput, ingredientNames);
 
   if (allergyResult.alert) {
     console.warn("Allergy alert for table", tableNo, "matches:", allergyResult.matches);
   }
 
-  // Create order
   const order = await Order.create({
     tableNo,
     dishes,
     allergiesInput,
-    allergyAlert: allergyResult.alert
+    allergyAlert: allergyResult.alert,
   });
-
-  // Removed: redundant and unsafe Table status update
-  // The table is already "occupied" from loginTable.
-  // Re-writing it here could re-occupy a cleared table in a race condition.
 
   return {
     message: "Order placed",
     allergyAlert: allergyResult.alert,
     allergyMatches: allergyResult.matches,
-    order
+    order,
   };
 };
 
@@ -138,9 +131,8 @@ exports.clearTable = async (data) => {
     await User.findByIdAndDelete(table.currentUser._id);
   }
 
-  // Atomic — replaces findOne + mutate + save
   const cleared = await Table.findOneAndUpdate(
-    { tableNo, status: "occupied" },       // only clears if actually occupied
+    { tableNo, status: "occupied" },
     { status: "free", currentUser: null, allergyAlert: false },
     { new: true }
   );
