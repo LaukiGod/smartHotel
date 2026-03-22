@@ -22,4 +22,6 @@ router.get("/tables", restaurantController.getTables);
 // add/update dish
 router.post("/add-dish", restaurantController.addDish);
 
+router.put("/update-dish", restaurantController.updateDish);
+
 module.exports = router;

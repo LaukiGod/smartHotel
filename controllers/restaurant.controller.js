@@ -73,3 +73,17 @@ exports.addDish = async (req, res) => {
     return res.status(500).json({ message: 'Internal server error' });
   }
 };
+
+exports.updateDish = async (req, res) => {
+  try {
+    const newDish = await restaurantService.updateDish({ dishId, name, price, recipe, ingredients });
+
+    return res.status(201).json({
+      message: 'Dish updated successfully',
+      dish: newDish
+    });
+  } catch (error) {
+    console.error('Error updating dish:', error);
+    return res.status(500).json({ message: 'Internal server error' });
+  }
+};

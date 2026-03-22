@@ -1,0 +1,193 @@
+const mongoose = require("mongoose");
+
+const dishSchema = new mongoose.Schema({
+  dishId: {
+    type: Number,
+    unique: true
+  },
+
+  name: {
+    type: String,
+    required: true
+  },
+
+  price: {
+    type: Number,
+    required: true
+  },
+
+  ingredients: [
+    {
+      type: String,
+    }
+  ],
+
+  recipe: {
+    type: String,
+    default: ""
+  },
+
+  createdAt: {
+    type: Date,
+    default: Date.now
+  }
+});
+
+module.exports = mongoose.model("Dish", dishSchema);
+
+
+
+// models/Inventory.js
+
+const mongoose = require("mongoose");
+
+const inventorySchema = new mongoose.Schema({
+  name: {
+    type: String,
+    required: true,
+    trim: true
+  },
+
+  quantity: {
+    type: Number,
+    required: true,
+    min: 0
+  },
+
+  unit: {
+    type: String,
+    enum: ["kg", "grams", "litres", "ml", "pieces", "packets"],
+    required: true
+  },
+
+  category: {
+    type: String,
+    enum: ["vegetable", "fruit", "dairy", "meat", "spice", "beverage", "other"],
+    default: "other"
+  },
+
+  lowStockThreshold: {
+    type: Number,
+    default: 10
+  },
+
+  expiryDate: {
+    type: Date,
+    default: null   // null = no expiry
+  },
+
+  createdAt: {
+    type: Date,
+    default: Date.now
+  }
+});
+
+module.exports = mongoose.model("Inventory", inventorySchema);
+
+
+const mongoose = require("mongoose");
+
+const orderSchema = new mongoose.Schema({
+  tableNo: {
+    type: Number,
+    required: true
+  },
+
+  dishes: [
+    {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Dish"
+    }
+  ],
+
+  allergiesInput: {
+    type: [String],
+    default: []
+  },
+
+  allergyAlert: {
+    type: Boolean,
+    default: false
+  },
+
+  status: {
+    type: String,
+    enum: ["pending", "preparing", "served"],
+    default: "pending"
+  },
+
+  createdAt: {
+    type: Date,
+    default: Date.now
+  }
+});
+
+module.exports = mongoose.model("Order", orderSchema);
+
+
+const mongoose = require("mongoose");
+
+const tableSchema = new mongoose.Schema({
+  tableNo: {
+    type: Number,
+    required: true,
+    unique: true
+  },
+
+  status: {
+    type: String,
+    enum: ["free", "occupied"],
+    default: "free"
+  },
+
+  allergyAlert: {
+    type: Boolean,
+    default: false
+  },
+
+  currentUser: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "User"
+  }
+});
+
+module.exports = mongoose.model("Table", tableSchema);
+
+const mongoose = require("mongoose");
+
+const userSchema = new mongoose.Schema({
+  tableNo: {
+    type: Number,
+    required: true
+  },
+
+  name: {
+    type: String,
+    required: true,
+    trim: true
+  },
+
+  phoneNo: {
+    type: String,
+    required: true,
+    trim: true
+  },
+
+  allergies: {
+    type: [String],
+    default: []
+  },
+
+  role: {
+    type: String,
+    enum: ["admin", "manager", "user"],
+    default: "user"
+  },
+
+  createdAt: {
+    type: Date,
+    default: Date.now
+  }
+});
+
+module.exports = mongoose.model("User", userSchema);
