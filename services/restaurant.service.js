@@ -31,7 +31,10 @@ exports.updateOrderStatus = async (data) => {
 };
 
 exports.getAllergyAlerts = async () => {
-  const alerts = await Order.find({ allergyAlert: true })
+  const alerts = await Order.find({
+    allergyAlert: true,
+    status: { $nin: ["served", "completed"] }
+  })
     .populate("dishes")
     .sort({ createdAt: -1 });
 
@@ -146,6 +149,18 @@ exports.addDish = async ({ name, price, recipe, ingredients }) => {
 
   await dish.save();
   return dish;
+};
+
+exports.deleteDish = async (id) => {
+  const dish = await Dish.findByIdAndDelete(id);
+  if (!dish) throw new Error("Dish not found");
+  return { message: `Dish "${dish.name}" deleted successfully` };
+};
+
+exports.deleteInventoryItem = async (id) => {
+  const item = await Inventory.findByIdAndDelete(id);
+  if (!item) throw new Error("Inventory item not found");
+  return { message: `"${item.name}" removed from inventory` };
 };
 
 exports.updateDish = async ({ dishId, name, price, recipe, ingredients }) => {

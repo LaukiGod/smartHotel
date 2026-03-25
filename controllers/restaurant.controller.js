@@ -76,14 +76,33 @@ exports.addDish = async (req, res) => {
 
 exports.updateDish = async (req, res) => {
   try {
+    const { dishId, name, price, recipe, ingredients } = req.body;
     const newDish = await restaurantService.updateDish({ dishId, name, price, recipe, ingredients });
 
-    return res.status(201).json({
+    return res.status(200).json({
       message: 'Dish updated successfully',
       dish: newDish
     });
   } catch (error) {
     console.error('Error updating dish:', error);
-    return res.status(500).json({ message: 'Internal server error' });
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+exports.deleteDish = async (req, res) => {
+  try {
+    const result = await restaurantService.deleteDish(req.params.id);
+    res.status(200).json(result);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+exports.deleteInventoryItem = async (req, res) => {
+  try {
+    const result = await restaurantService.deleteInventoryItem(req.params.id);
+    res.status(200).json(result);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
   }
 };

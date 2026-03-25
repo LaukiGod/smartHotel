@@ -19,9 +19,12 @@ router.get("/inventory", restaurantController.getInventoryItems);
 // table status
 router.get("/tables", restaurantController.getTables);
 
-// add/update dish
+// add/update/delete dish
 router.post("/add-dish", restaurantController.addDish);
-
 router.put("/update-dish", restaurantController.updateDish);
+router.delete("/dish/:id", restaurantController.deleteDish);
+
+// delete inventory item
+router.delete("/inventory/:id", restaurantController.deleteInventoryItem);
 
 module.exports = router;
