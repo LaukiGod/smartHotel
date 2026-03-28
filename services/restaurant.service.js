@@ -121,7 +121,7 @@ exports.getTables = async () => {
   return tables;
 };
 
-exports.addDish = async ({ name, price, recipe, ingredients }) => {
+exports.addDish = async ({ name, price, recipe, ingredients, imageUrl }) => {
   if (!name || !price) {
     throw new Error("Dish name and price are required");
   }
@@ -144,7 +144,8 @@ exports.addDish = async ({ name, price, recipe, ingredients }) => {
     name: name.trim(),
     price,
     recipe,
-    ingredients
+    ingredients,
+    imageUrl
   });
 
   await dish.save();
@@ -163,7 +164,7 @@ exports.deleteInventoryItem = async (id) => {
   return { message: `"${item.name}" removed from inventory` };
 };
 
-exports.updateDish = async ({ dishId, name, price, recipe, ingredients }) => {
+exports.updateDish = async ({ dishId, name, price, recipe, ingredients, imageUrl }) => {
   if (!dishId) {
     throw new Error("dishId is required");
   }
@@ -172,6 +173,7 @@ exports.updateDish = async ({ dishId, name, price, recipe, ingredients }) => {
   if (name !== undefined) updates.name = name.trim();
   if (price !== undefined) updates.price = price;
   if (recipe !== undefined) updates.recipe = recipe;
+  if (imageUrl !== undefined) updates.imageUrl = imageUrl;
   if (ingredients !== undefined) {
     if (!Array.isArray(ingredients)) {
       throw new Error("ingredients must be an array of strings");

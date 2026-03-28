@@ -56,13 +56,13 @@ exports.getTables = async (req, res) => {
 
 exports.addDish = async (req, res) => {
   try {
-    const { name, price, recipe, ingredients } = req.body;
+    const { name, price, recipe, ingredients, imageUrl } = req.body;
 
     if (!name || !price || !recipe) {
       return res.status(400).json({ message: 'Name, price, and recipe are required' });
     }
 
-    const newDish = await restaurantService.addDish({ name, price, recipe, ingredients });
+    const newDish = await restaurantService.addDish({ name, price, recipe, ingredients, imageUrl });
 
     return res.status(201).json({
       message: 'Dish added successfully',
@@ -76,8 +76,8 @@ exports.addDish = async (req, res) => {
 
 exports.updateDish = async (req, res) => {
   try {
-    const { dishId, name, price, recipe, ingredients } = req.body;
-    const newDish = await restaurantService.updateDish({ dishId, name, price, recipe, ingredients });
+    const { dishId, name, price, recipe, ingredients, imageUrl } = req.body;
+    const newDish = await restaurantService.updateDish({ dishId, name, price, recipe, ingredients, imageUrl });
 
     return res.status(200).json({
       message: 'Dish updated successfully',

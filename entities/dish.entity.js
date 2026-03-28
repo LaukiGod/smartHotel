@@ -27,6 +27,11 @@ const dishSchema = new mongoose.Schema({
     default: ""
   },
 
+  imageUrl: {
+    type: String,
+    default: "https://static.vecteezy.com/system/resources/thumbnails/031/415/218/small/top-view-delicious-food-plate-on-a-black-background-ai-generated-photo.jpg"
+  },
+
   createdAt: {
     type: Date,
     default: Date.now
