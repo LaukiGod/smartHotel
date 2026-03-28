@@ -1,7 +1,5 @@
-Sure! Here’s the **README.md** content formatted so you can directly copy and paste it into a `.md` file:
-
 ```markdown
-# Riyon Hotel Management System
+# Hotel Management System
 
 Riyon Hotel Management System is a **restaurant/hotel management web application** that allows customers to place food orders digitally from their tables and helps the restaurant detect **potential food allergies**. The system also provides a simple inventory and table management system for restaurant staff.
 
