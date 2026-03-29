@@ -130,8 +130,12 @@ exports.addDish = async ({ name, price, recipe, ingredients, imageUrl }) => {
     throw new Error("ingredients must be an array of strings");
   }
 
-  const existing = await Dish.findOne({ name: new RegExp(`^${name.trim()}$`, "i") });
+  // ✅ Handle default image upfront, cleanly
+  if (!imageUrl || typeof imageUrl !== "string") {
+    imageUrl = 'https://images.unsplash.com/photo-1555939594-58d7cb561ad1?w=400&q=70';
+  }
 
+  const existing = await Dish.findOne({ name: new RegExp(`^${name.trim()}$`, "i") });
   if (existing) {
     throw new Error(`A dish named "${existing.name}" already exists. Use the update endpoint to modify it.`);
   }

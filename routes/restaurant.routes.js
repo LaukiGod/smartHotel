@@ -5,10 +5,10 @@ const restaurantController = require("../controllers/restaurant.controller");
 const { validateSecret } = require("../middlewares/auth.middlewhare");
 
 // get all orders
-router.get("/orders", restaurantController.getOrders);
+router.get("/orders", validateSecret, restaurantController.getOrders);
 
 // update order status
-router.post("/order-status", restaurantController.updateOrderStatus);
+router.post("/order-status", validateSecret, restaurantController.updateOrderStatus);
 
 // get allergy alerts
 router.get("/alerts", validateSecret, restaurantController.getAllergyAlerts);
