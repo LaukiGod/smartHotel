@@ -168,6 +168,36 @@ exports.deleteInventoryItem = async (id) => {
   return { message: `"${item.name}" removed from inventory` };
 };
 
+exports.updateInventoryItem = async (id, data) => {
+  if (!id) {
+    throw new Error("Inventory item ID is required");
+  }
+
+  const updates = {};
+  if (data.quantity !== undefined) {
+    if (data.quantity < 0) throw new Error("Quantity cannot be negative");
+    updates.quantity = data.quantity;
+  }
+  if (data.unit !== undefined) updates.unit = data.unit;
+  if (data.category !== undefined) updates.category = data.category;
+  if (data.lowStockThreshold !== undefined) updates.lowStockThreshold = data.lowStockThreshold;
+  if (data.expiryDate !== undefined) updates.expiryDate = data.expiryDate;
+
+  if (!Object.keys(updates).length) {
+    throw new Error("No fields provided to update");
+  }
+
+  const item = await Inventory.findByIdAndUpdate(
+    id,
+    updates,
+    { new: true, runValidators: true }
+  );
+
+  if (!item) throw new Error("Inventory item not found");
+
+  return { message: "Inventory item updated successfully", item };
+};
+
 exports.updateDish = async ({ dishId, name, price, recipe, ingredients, imageUrl }) => {
   if (!dishId) {
     throw new Error("dishId is required");

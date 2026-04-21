@@ -98,6 +98,15 @@ exports.deleteDish = async (req, res) => {
   }
 };
 
+exports.updateInventoryItem = async (req, res) => {
+  try {
+    const result = await restaurantService.updateInventoryItem(req.params.id, req.body);
+    res.status(200).json(result);
+  } catch (error) {
+    res.status(400).json({ message: error.message });
+  }
+};
+
 exports.deleteInventoryItem = async (req, res) => {
   try {
     const result = await restaurantService.deleteInventoryItem(req.params.id);

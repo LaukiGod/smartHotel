@@ -28,4 +28,7 @@ router.delete("/dish/:id", validateSecret, restaurantController.deleteDish);
 // delete inventory item
 router.delete("/inventory/:id", validateSecret, restaurantController.deleteInventoryItem);
 
+// update inventory item
+router.put("/inventory/:id", validateSecret, restaurantController.updateInventoryItem);
+
 module.exports = router;
