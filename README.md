@@ -1,171 +1,252 @@
-```markdown
-# Hotel Management System
+# Hotel Management System — Backend
 
-Riyon Hotel Management System is a **restaurant/hotel management web application** that allows customers to place food orders digitally from their tables and helps the restaurant detect **potential food allergies**. The system also provides a simple inventory and table management system for restaurant staff.
+QR-based in-restaurant ordering and management system.  
+Customers order via QR scan. Staff manage orders. Admin manages everything.
 
-## Features
+---
 
-- Table-based customer login.
-- Optional allergy input for customers.
-- Menu browsing and food ordering.
-- Automatic allergy detection for ordered dishes.
-- Simple order status tracking: `pending → preparing → served`.
-- Basic ingredient inventory management.
-- Table status tracking: free / occupied.
-- Dashboard for restaurant staff to view orders, allergy alerts, ingredients, and tables.
-- Role-based access: **admin, manager, user**.
+## Tech Stack
 
-## Technology Stack
+- **Runtime:** Node.js
+- **Framework:** Express.js v5
+- **Database:** MongoDB + Mongoose
+- **Auth:** Google OAuth2 (Passport.js) + JWT
+- **AI:** Google Generative AI (allergy checker)
 
-- **Backend:** Node.js, Express.js  
-- **Database:** MongoDB, Mongoose  
-- **ORM (optional):** TypeORM  
-- **Containerization:** Docker & Docker Compose  
-- **Environment Management:** dotenv  
+---
 
 ## Folder Structure
 
 ```
-
-hotel-management-backend/
-│
-├── server.js             # Entry point
-├── app.js                # Express app initialization
+hotelManagementSystem/
+├── app.js                        # Express app setup
+├── server.js                     # Entry point
 ├── config/
-│   └── db.js             # MongoDB connection
-│
-├── entities/             # Database models
-│   ├── user.entity.js
+│   ├── database.js               # MongoDB connection
+│   └── passport.js               # Google OAuth2 strategy
+├── entities/                     # Mongoose models
+│   ├── user.entity.js            # Customer (table session)
+│   ├── staff.entity.js           # Admin / Staff
 │   ├── table.entity.js
+│   ├── order.entity.js
 │   ├── dish.entity.js
-│   ├── ingredient.entity.js
-│   └── order.entity.js
-│
-├── routers/              # API routes
-│   ├── user.routes.js
-│   └── restaurant.routes.js
-│
-├── controllers/          # Handles incoming requests
+│   └── inventory.entity.js
+├── controllers/
 │   ├── user.controller.js
-│   └── restaurant.controller.js
-│
-├── services/             # Business logic
+│   ├── restaurant.controller.js
+│   └── staffAuth.controller.js
+├── services/
 │   ├── user.service.js
 │   └── restaurant.service.js
-│
-├── utils/                # Helper functions
-│   └── allergyChecker.js
-│
-└── .env                  # Environment variables
+├── routes/
+│   ├── user.routes.js
+│   ├── restaurant.routes.js
+│   └── staffAuth.routes.js
+├── middlewares/
+│   └── staffAuth.middleware.js   # JWT authenticate + role authorize
+└── utils/
+    ├── jwt.js
+    ├── allergyChecker.js
+    ├── helpers.js
+    ├── ingredientsManipulator.js
+    └── seed.js
+```
 
-````
+---
 
-## Installation
+## Setup
 
-1. **Clone the repository**
-
-```bash
-git clone https://github.com/yourusername/riyonhotel.git
-cd riyonhotel
-````
-
-2. **Install dependencies**
+### 1. Install dependencies
 
 ```bash
 npm install
 ```
 
-3. **Create `.env` file** (example)
-
-```env
-PORT=5000
-MONGO_URI=mongodb://mongo:27017/hotel_management
-JWT_SECRET=your_jwt_secret_key_here
-NODE_ENV=development
-```
-
-## Running Locally
-
-Start the server in **development mode**:
+### 2. Configure environment
 
 ```bash
+cp .env.example .env
+```
+
+Fill in `.env` (see Environment Variables section below).
+
+### 3. Google OAuth2 setup
+
+1. Go to [console.cloud.google.com](https://console.cloud.google.com)
+2. Create a project → **APIs & Services** → **Credentials** → **Create OAuth 2.0 Client ID**
+3. Application type: **Web application**
+4. Authorized redirect URI: `http://localhost:5000/api/auth/google/callback`
+5. Copy **Client ID** and **Client Secret** into `.env`
+
+### 4. Run
+
+```bash
+# Development
 npm run dev
-```
 
-Start the server in **production mode**:
-
-```bash
+# Production
 npm start
-```
-
-## Docker Setup
-
-1. **Build and run using Docker Compose**
-
-```bash
-docker-compose up --build
-```
-
-2. This will start:
-
-   * `backend` → Node.js application
-   * `mongo` → MongoDB database
-
-## API Endpoints
-
-### User APIs
-
-* `POST /user/login-table` → Log in with a table number
-* `POST /user/set-allergies` → Enter allergies
-* `GET /user/menu` → Retrieve menu
-* `POST /user/order` → Place an order
-* `POST /user/clear-table` → Clear the table after dining
-
-### Restaurant APIs
-
-* `GET /restaurant/orders` → View all orders
-* `POST /restaurant/order-status` → Update order status
-* `GET /restaurant/alerts` → View allergy alerts
-* `POST /restaurant/add-ingredient` → Add ingredient to inventory
-* `GET /restaurant/ingredients` → View ingredient inventory
-* `GET /restaurant/tables` → View table status
-
-## Allergy Detection
-
-The backend automatically checks if any ingredient in a dish matches the customer’s allergy input. If a match is found, an `allergyAlert` flag is added to the order, which is visible only on the **restaurant dashboard**.
-
-Example:
-
-```json
-{
-  "tableNo": 5,
-  "dishes": ["dishId1"],
-  "allergiesInput": ["peanut"]
-}
-```
-
-Response:
-
-```json
-{
-  "message": "Order placed",
-  "allergyAlert": true,
-  "matchedIngredient": "peanut oil"
-}
-```
-
-## Future Enhancements
-
-* AI-powered allergy detection for cross-ingredient analysis.
-* Real-time updates on dashboard using WebSockets.
-* JWT-based authentication for staff and admin roles.
-* Advanced inventory tracking and notifications for low stock or expiring ingredients.
-
 ```
 
 ---
 
-If you want, I can also **add a small “Getting Started with Docker” section with commands** directly in the README so it’s fully copy-paste ready for development.  
+## Environment Variables
 
-Do you want me to do that?
+| Variable | Description |
+|---|---|
+| `PORT` | Server port (default: 5000) |
+| `MONGO_URI` | MongoDB connection string |
+| `GOOGLE_CLIENT_ID` | From Google Cloud Console |
+| `GOOGLE_CLIENT_SECRET` | From Google Cloud Console |
+| `GOOGLE_CALLBACK_URL` | Must match what's set in Google Console |
+| `JWT_SECRET` | Long random string for signing tokens |
+| `JWT_EXPIRES_IN` | Token expiry e.g. `8h`, `1d` |
+| `FRONTEND_URL` | Where to redirect after login (e.g. `http://localhost:3000`) |
+
+---
+
+## Authentication Flow (Staff / Admin)
+
+```
+Admin pre-registers staff email+role via POST /api/auth/staff
+          ↓
+Staff opens GET /api/auth/google in browser
+          ↓
+Google login page → staff signs in
+          ↓
+Google redirects to /api/auth/google/callback
+          ↓
+Backend issues JWT → redirects to FRONTEND_URL/auth/callback?token=...
+          ↓
+Frontend stores token → sends as Authorization: Bearer <token> on all requests
+```
+
+> **First Admin:** Pre-register the first ADMIN directly in MongoDB, or temporarily open the `POST /api/auth/staff` route, create the admin, then re-protect it.
+
+---
+
+## API Reference
+
+Base URL: `http://localhost:5000/api`
+
+### Auth — `/api/auth`
+
+| Method | Endpoint | Auth | Description |
+|---|---|---|---|
+| GET | `/auth/google` | Public | Redirect to Google login |
+| GET | `/auth/google/callback` | Public | Google callback — issues JWT |
+| GET | `/auth/failed` | Public | Login failure response |
+| GET | `/auth/me` | Any staff | Get own token payload |
+| GET | `/auth/staff` | ADMIN | List all staff |
+| POST | `/auth/staff` | ADMIN | Pre-register a staff member |
+| PATCH | `/auth/staff/:id/activate` | ADMIN | Activate staff account |
+| PATCH | `/auth/staff/:id/deactivate` | ADMIN | Deactivate staff account |
+| DELETE | `/auth/staff/:id` | ADMIN | Hard delete staff account |
+
+**POST `/auth/staff` body:**
+```json
+{
+  "name": "Riya Sharma",
+  "email": "riya@restaurant.com",
+  "role": "STAFF"
+}
+```
+
+---
+
+### Customer — `/api/user`
+
+All public (no auth required).
+
+| Method | Endpoint | Description |
+|---|---|---|
+| POST | `/user/login-table` | Start table session (name + phone) |
+| POST | `/user/set-allergies` | Set customer allergies |
+| GET | `/user/menu` | Get full menu |
+| POST | `/user/order` | Place an order |
+| POST | `/user/clear-table` | End session, free table |
+
+**POST `/user/login-table` body:**
+```json
+{ "tableNo": 5, "name": "Amit", "phoneNo": "9876543210" }
+```
+
+**POST `/user/order` body:**
+```json
+{ "tableNo": 5, "dishes": ["<dishId>", "<dishId>"] }
+```
+
+---
+
+### Restaurant — `/api/restaurant`
+
+All require `Authorization: Bearer <token>` except `/tables`.
+
+| Method | Endpoint | Role | Description |
+|---|---|---|---|
+| GET | `/restaurant/orders` | ADMIN, STAFF | All orders |
+| POST | `/restaurant/order-status` | ADMIN, STAFF | Update order status |
+| GET | `/restaurant/alerts` | ADMIN, STAFF | Active allergy alerts |
+| GET | `/restaurant/tables` | Public | All table statuses |
+| GET | `/restaurant/inventory` | ADMIN, STAFF | View inventory |
+| POST | `/restaurant/add-inventory` | ADMIN | Add inventory items |
+| PUT | `/restaurant/inventory/:id` | ADMIN | Update inventory item |
+| DELETE | `/restaurant/inventory/:id` | ADMIN | Delete inventory item |
+| POST | `/restaurant/add-dish` | ADMIN | Add a dish |
+| PUT | `/restaurant/update-dish` | ADMIN | Update a dish |
+| DELETE | `/restaurant/dish/:id` | ADMIN | Delete a dish |
+
+**POST `/restaurant/order-status` body:**
+```json
+{ "orderId": "<id>", "status": "preparing" }
+```
+Valid statuses: `pending` → `preparing` → `served`
+
+**POST `/restaurant/add-dish` body:**
+```json
+{
+  "name": "Paneer Butter Masala",
+  "price": 180,
+  "ingredients": ["paneer", "butter", "tomato"],
+  "recipe": "...",
+  "imageUrl": "https://..."
+}
+```
+
+---
+
+## Order & Table Flows
+
+```
+Order:  created → pending → preparing → served
+Table:  free → occupied → free
+```
+
+---
+
+## Role Summary
+
+| Role | Can Do |
+|---|---|
+| ADMIN | Everything: manage staff, dishes, inventory, orders |
+| STAFF | View and update orders, view alerts and inventory, view tables |
+| Customer | Login, view menu, place order, clear table (no auth token) |
+
+---
+
+## Protecting Routes (usage pattern)
+
+```js
+const { authenticate, authorize } = require("../middlewares/staffAuth.middleware");
+
+router.get("/orders",    authenticate, authorize("ADMIN", "STAFF"), controller.getOrders);
+router.post("/add-dish", authenticate, authorize("ADMIN"),          controller.addDish);
+```
+
+---
+
+## Docker
+
+```bash
+docker-compose up --build
 ```

@@ -2,33 +2,27 @@ const express = require("express");
 const router = express.Router();
 
 const restaurantController = require("../controllers/restaurant.controller");
-const { validateSecret } = require("../middlewares/auth.middlewhare");
+const { authenticate, authorize } = require("../middlewares/staffAuth.middleware");
 
-// get all orders
-router.get("/orders", validateSecret, restaurantController.getOrders);
+// orders — ADMIN + STAFF
+router.get("/orders",       authenticate, authorize("ADMIN", "STAFF"), restaurantController.getOrders);
+router.post("/order-status",authenticate, authorize("ADMIN", "STAFF"), restaurantController.updateOrderStatus);
 
-// update order status
-router.post("/order-status", validateSecret, restaurantController.updateOrderStatus);
+// allergy alerts — ADMIN + STAFF
+router.get("/alerts",       authenticate, authorize("ADMIN", "STAFF"), restaurantController.getAllergyAlerts);
 
-// get allergy alerts
-router.get("/alerts", validateSecret, restaurantController.getAllergyAlerts);
+// inventory — ADMIN only
+router.post("/add-inventory",    authenticate, authorize("ADMIN"), restaurantController.addItemsToInventory);
+router.get("/inventory",         authenticate, authorize("ADMIN", "STAFF"), restaurantController.getInventoryItems);
+router.put("/inventory/:id",     authenticate, authorize("ADMIN"), restaurantController.updateInventoryItem);
+router.delete("/inventory/:id",  authenticate, authorize("ADMIN"), restaurantController.deleteInventoryItem);
 
-// ingredient inventory
-router.post("/add-inventory", validateSecret, restaurantController.addItemsToInventory);
-router.get("/inventory", validateSecret, restaurantController.getInventoryItems);
-
-// table status
+// tables — public (QR scan needs this)
 router.get("/tables", restaurantController.getTables);
 
-// add/update/delete dish
-router.post("/add-dish", validateSecret, restaurantController.addDish);
-router.put("/update-dish", validateSecret, restaurantController.updateDish);
-router.delete("/dish/:id", validateSecret, restaurantController.deleteDish);
-
-// delete inventory item
-router.delete("/inventory/:id", validateSecret, restaurantController.deleteInventoryItem);
-
-// update inventory item
-router.put("/inventory/:id", validateSecret, restaurantController.updateInventoryItem);
+// dishes — ADMIN only
+router.post("/add-dish",    authenticate, authorize("ADMIN"), restaurantController.addDish);
+router.put("/update-dish",  authenticate, authorize("ADMIN"), restaurantController.updateDish);
+router.delete("/dish/:id",  authenticate, authorize("ADMIN"), restaurantController.deleteDish);
 
 module.exports = router;
