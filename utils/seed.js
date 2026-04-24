@@ -31,18 +31,27 @@ const seedTables = async () => {
       console.log('ℹ️ Tables already exist, skipping seed');
       console.log('🎉 [PostInstall] Seeding completed successfully!');
     }
-    const existingStaff = await Staff.findOne({ email: 'acmearjun2003@gmail.com' });
-    if (!existingStaff) {
-      await Staff.create({
-        name: 'Arjun Bam',
-        email: 'acmearjun2003@gmail.com',
-        role: 'ADMIN',
-      });
-      console.log('✅ Admin staff Arjun Bam seeded');
-    } else {
-      console.log('ℹ️ Admin staff already exists, skipping seed');
-    }
+    // --- Seed Admin Staff from .env ---
+    const adminEmail = process.env.SEED_ADMIN_EMAIL;
+    const adminName = process.env.SEED_ADMIN_NAME;
+    const adminRole = process.env.SEED_ADMIN_ROLE;
 
+    if (!adminEmail || !adminName || !adminRole) {
+      console.warn('⚠️ Admin seed env variables missing, skipping staff seed');
+    } else {
+      const existingStaff = await Staff.findOne({ email: adminEmail });
+      if (!existingStaff) {
+        await Staff.create({
+          name: adminName,
+          email: adminEmail,
+          role: adminRole,
+        });
+        console.log(`✅ Admin staff ${adminName} seeded`);
+      } else {
+        console.log('ℹ️ Admin staff already exists, skipping seed');
+      }
+    }
+    
     await mongoose.disconnect();
     process.exit(0);
   } catch (err) {
