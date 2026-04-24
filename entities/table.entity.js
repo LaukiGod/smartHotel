@@ -9,8 +9,8 @@ const tableSchema = new mongoose.Schema({
 
   status: {
     type: String,
-    enum: ["free", "occupied"],
-    default: "free"
+    enum: ["available", "occupied", "cleaning"],
+    default: "available"
   },
 
   allergyAlert: {
@@ -21,6 +21,21 @@ const tableSchema = new mongoose.Schema({
   currentUser: {
     type: mongoose.Schema.Types.ObjectId,
     ref: "User"
+  },
+
+  waiterRequested: {
+    type: Boolean,
+    default: false
+  },
+
+  occupiedSince: {
+    type: Date,
+    default: null
+  },
+
+  lastStatusChangedAt: {
+    type: Date,
+    default: Date.now
   }
 });
 
