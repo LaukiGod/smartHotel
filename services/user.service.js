@@ -4,9 +4,47 @@ const Order = require("../entities/order.entity");
 const Dish = require("../entities/dish.entity");
 const { checkAllergyRisk } = require("../utils/allergyChecker");
 const { isTableValid } = require("../utils/helpers");
+const mongoose = require("mongoose");
+
+const resolveDishIds = async (rawDishes) => {
+  const dishList = Array.isArray(rawDishes) ? rawDishes : [];
+  const normalizedTokens = dishList
+    .map((v) => (v === null || v === undefined ? "" : String(v).trim()))
+    .filter(Boolean);
+
+  if (!normalizedTokens.length) {
+    throw new Error("dishes must be a non-empty array");
+  }
+
+  const uniqueTokens = Array.from(new Set(normalizedTokens));
+  const objectIdCandidates = uniqueTokens
+    .filter((token) => mongoose.Types.ObjectId.isValid(token))
+    .map((token) => new mongoose.Types.ObjectId(token));
+  const numericCandidates = uniqueTokens
+    .map((token) => Number(token))
+    .filter((n) => Number.isInteger(n) && n > 0);
+
+  const or = [];
+  if (objectIdCandidates.length) or.push({ _id: { $in: objectIdCandidates } });
+  if (numericCandidates.length) or.push({ dishId: { $in: numericCandidates } });
+  if (!or.length) throw new Error("One or more dishes not found");
+
+  const dishDocs = await Dish.find({ $or: or });
+  const lookup = new Map();
+  for (const dish of dishDocs) {
+    lookup.set(String(dish._id), dish);
+    if (Number.isInteger(dish.dishId)) lookup.set(String(dish.dishId), dish);
+  }
+
+  const unresolved = uniqueTokens.filter((t) => !lookup.has(t));
+  if (unresolved.length) throw new Error("One or more dishes not found");
+
+  const resolvedDishIds = normalizedTokens.map((t) => lookup.get(t)._id);
+  return { resolvedDishIds, dishDocs };
+};
 
 exports.loginTable = async (data) => {
-  const { tableNo, name, phoneNo } = data;
+  const { tableNo, name, phoneNo, allowExistingSession } = data;
 
   if (tableNo === undefined || !isTableValid(tableNo)) {
     throw new Error("Invalid table number");
@@ -26,7 +64,25 @@ exports.loginTable = async (data) => {
     { new: true }
   );
 
-  if (!claimedTable) throw new Error("Table not available");
+  if (!claimedTable) {
+    // Edit-details flow: allow updating current session details on the same occupied table
+    // instead of trying to claim the table again.
+    if (allowExistingSession) {
+      const occupiedTable = await Table.findOne({ tableNo }).populate("currentUser");
+      if (!occupiedTable) throw new Error("Table not found");
+      if (occupiedTable.status !== "occupied" || !occupiedTable.currentUser) {
+        throw new Error("Table not available");
+      }
+
+      occupiedTable.currentUser.name = name;
+      occupiedTable.currentUser.phoneNo = phoneNo;
+      await occupiedTable.currentUser.save();
+
+      return { message: "Table session updated", user: occupiedTable.currentUser };
+    }
+
+    throw new Error("Table not available");
+  }
 
   // Create user only after table is secured — nothing to roll back on failure
   const user = await User.create({ tableNo, name, phoneNo, role: "user" });
@@ -77,20 +133,13 @@ exports.getMenu = async () => {
 exports.orderFood = async (data) => {
   const { tableNo, dishes } = data;
 
-  if (!Array.isArray(dishes) || dishes.length === 0) {
-    throw new Error("dishes must be a non-empty array");
-  }
+  const { resolvedDishIds, dishDocs } = await resolveDishIds(dishes);
 
   const table = await Table.findOne({ tableNo }).populate("currentUser");
   if (!table) throw new Error(`Table ${tableNo} not found`);
 
   if (table.status !== "occupied") {
     throw new Error(`Table ${tableNo} is not active`);
-  }
-
-  const dishDocs = await Dish.find({ _id: { $in: dishes } });
-  if (dishDocs.length !== dishes.length) {
-    throw new Error("One or more dishes not found");
   }
 
   const ingredientNames = dishDocs.flatMap((dish) => dish.ingredients);
@@ -104,7 +153,7 @@ exports.orderFood = async (data) => {
 
   const order = await Order.create({
     tableNo,
-    dishes,
+    dishes: resolvedDishIds,
     allergiesInput,
     allergyAlert: allergyResult.alert,
     status: "created",

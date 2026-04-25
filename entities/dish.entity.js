@@ -11,6 +11,12 @@ const dishSchema = new mongoose.Schema({
     required: true
   },
 
+  category: {
+    type: String,
+    default: "General",
+    trim: true
+  },
+
   price: {
     type: Number,
     required: true

@@ -2,8 +2,66 @@ const Order = require("../entities/order.entity");
 const Dish = require("../entities/dish.entity");
 const Inventory = require("../entities/inventory.entity");
 const Table = require("../entities/table.entity");
+const User = require("../entities/user.entity");
+const { checkAllergyRisk } = require("../utils/allergyChecker");
+const mongoose = require("mongoose");
 
 const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const ORDER_STATUSES = ["created", "paid", "preparing", "served", "completed"];
+
+const normalizeAllergies = (raw) => {
+  if (Array.isArray(raw)) {
+    return raw
+      .map((a) => String(a || "").trim().toLowerCase())
+      .filter(Boolean);
+  }
+
+  if (typeof raw === "string") {
+    return raw
+      .split(",")
+      .map((a) => a.trim().toLowerCase())
+      .filter(Boolean);
+  }
+
+  return [];
+};
+
+const resolveDishIds = async (rawDishes) => {
+  const dishList = Array.isArray(rawDishes) ? rawDishes : [];
+  const normalizedTokens = dishList
+    .map((v) => (v === null || v === undefined ? "" : String(v).trim()))
+    .filter(Boolean);
+
+  if (!normalizedTokens.length) {
+    throw new Error("dishes must be a non-empty array");
+  }
+
+  const uniqueTokens = Array.from(new Set(normalizedTokens));
+  const objectIdCandidates = uniqueTokens
+    .filter((token) => mongoose.Types.ObjectId.isValid(token))
+    .map((token) => new mongoose.Types.ObjectId(token));
+  const numericCandidates = uniqueTokens
+    .map((token) => Number(token))
+    .filter((n) => Number.isInteger(n) && n > 0);
+
+  const or = [];
+  if (objectIdCandidates.length) or.push({ _id: { $in: objectIdCandidates } });
+  if (numericCandidates.length) or.push({ dishId: { $in: numericCandidates } });
+  if (!or.length) throw new Error("One or more dishes not found");
+
+  const dishDocs = await Dish.find({ $or: or });
+  const lookup = new Map();
+  for (const dish of dishDocs) {
+    lookup.set(String(dish._id), dish);
+    if (Number.isInteger(dish.dishId)) lookup.set(String(dish.dishId), dish);
+  }
+
+  const unresolved = uniqueTokens.filter((t) => !lookup.has(t));
+  if (unresolved.length) throw new Error("One or more dishes not found");
+
+  const resolvedDishIds = normalizedTokens.map((t) => lookup.get(t)._id);
+  return { resolvedDishIds, dishDocs };
+};
 
 exports.getOrders = async () => {
   const startOfDay = new Date();
@@ -19,9 +77,8 @@ exports.getOrders = async () => {
 exports.updateOrderStatus = async (data) => {
   const { orderId, status } = data;
 
-  const validStatuses = ["created", "paid", "preparing", "served", "completed"];
-  if (!validStatuses.includes(status)) {
-    throw new Error(`Invalid status. Must be one of: ${validStatuses.join(", ")}`);
+  if (!ORDER_STATUSES.includes(status)) {
+    throw new Error(`Invalid status. Must be one of: ${ORDER_STATUSES.join(", ")}`);
   }
 
   const order = await Order.findByIdAndUpdate(
@@ -35,15 +92,162 @@ exports.updateOrderStatus = async (data) => {
   return { message: "Order status updated", order };
 };
 
+exports.createOrder = async (data) => {
+  const tableNo = Number(data?.tableNo);
+  const dishes = Array.isArray(data?.dishes) ? data.dishes : [];
+  const customerName = String(data?.customerName || "Walk-in").trim() || "Walk-in";
+  const phoneNo = String(data?.phoneNo || "0000000000").trim() || "0000000000";
+  const allergiesInput = normalizeAllergies(
+    data?.allergiesInput ?? data?.allergies ?? data?.allergy
+  );
+
+  if (!Number.isFinite(tableNo) || tableNo <= 0) throw new Error("Valid tableNo is required");
+  if (!Array.isArray(dishes) || dishes.length === 0) throw new Error("dishes must be a non-empty array");
+  if (!/^\d{10}$/.test(phoneNo)) throw new Error("phoneNo must be exactly 10 digits");
+
+  // Ensure table exists
+  let table = await Table.findOne({ tableNo });
+  if (!table) table = await Table.create({ tableNo });
+
+  // Ensure there is a currentUser to attach allergies/session info
+  let user = null;
+  if (table.currentUser) {
+    user = await User.findById(table.currentUser);
+  }
+
+  if (!user) {
+    user = await User.create({ tableNo, name: customerName, phoneNo, allergies: allergiesInput, role: "user" });
+    table.currentUser = user._id;
+  } else if (allergiesInput.length) {
+    user.allergies = allergiesInput;
+    await user.save();
+  }
+
+  // Mark table active
+  if (table.status === "available") {
+    table.status = "occupied";
+    table.occupiedSince = new Date();
+  }
+  table.lastStatusChangedAt = new Date();
+  table.allergyAlert = (user.allergies || []).length > 0;
+  await table.save();
+
+  // Validate dishes and compute allergy flag
+  const { resolvedDishIds, dishDocs } = await resolveDishIds(dishes);
+
+  const ingredientNames = dishDocs.flatMap((d) => d.ingredients || []);
+  const allergyResult = await checkAllergyRisk(user.allergies || [], ingredientNames);
+
+  const order = await Order.create({
+    tableNo,
+    dishes: resolvedDishIds,
+    allergiesInput: user.allergies || [],
+    allergyAlert: allergyResult.alert,
+    status: "created",
+    paymentStatus: "pending",
+    paymentMethod: "UPI"
+  });
+
+  // Propagate table allergy alert if needed
+  if (order.allergyAlert) {
+    await Table.findOneAndUpdate({ tableNo }, { allergyAlert: true }, { new: true });
+  }
+
+  const populated = await Order.findById(order._id).populate("dishes");
+
+  return {
+    message: "Order created by staff",
+    orderId: order._id,
+    order: populated || order
+  };
+};
+
+exports.updateOrderDetails = async (data) => {
+  const { orderId } = data || {};
+  if (!orderId) throw new Error("orderId is required");
+
+  const order = await Order.findById(orderId);
+  if (!order) throw new Error("Order not found");
+
+  const nextDishes = Array.isArray(data?.dishes) ? data.dishes : null;
+  const nextAllergies = normalizeAllergies(
+    data?.allergiesInput ?? data?.allergies ?? data?.allergy
+  );
+  const hasAllergyField = ["allergiesInput", "allergies", "allergy"].some((k) =>
+    Object.prototype.hasOwnProperty.call(data || {}, k)
+  );
+
+  if (nextDishes && nextDishes.length === 0) {
+    throw new Error("dishes must be a non-empty array");
+  }
+  if (!nextDishes && !hasAllergyField) {
+    throw new Error("Provide at least one field to update");
+  }
+
+  let dishDocs = null;
+  if (nextDishes) {
+    const resolved = await resolveDishIds(nextDishes);
+    dishDocs = resolved.dishDocs;
+    order.dishes = resolved.resolvedDishIds;
+  } else {
+    dishDocs = await Dish.find({ _id: { $in: order.dishes } });
+  }
+
+  if (hasAllergyField) {
+    order.allergiesInput = nextAllergies;
+  }
+
+  const ingredientNames = dishDocs.flatMap((d) => d.ingredients || []);
+  const allergyResult = await checkAllergyRisk(order.allergiesInput || [], ingredientNames);
+  order.allergyAlert = allergyResult.alert;
+
+  await order.save();
+
+  await Table.findOneAndUpdate(
+    { tableNo: order.tableNo },
+    { allergyAlert: Boolean(order.allergyAlert) },
+    { new: true }
+  );
+
+  const updatedOrder = await Order.findById(order._id).populate("dishes");
+  return {
+    message: "Order details updated",
+    order: updatedOrder || order
+  };
+};
+
 exports.getAllergyAlerts = async () => {
-  const alerts = await Order.find({
-    allergyAlert: true,
-    status: { $nin: ["completed"] }
+  const orderAlerts = await Order.find({
+    allergyAlert: true
   })
     .populate("dishes")
     .sort({ createdAt: -1 });
 
-  return alerts;
+  const tableAlerts = await Table.find({ allergyAlert: true })
+    .populate("currentUser")
+    .sort({ tableNo: 1 });
+
+  // Merge table-level alerts (active seat/session risk) with order alerts.
+  // Avoid duplicate entries when an order alert already exists for the same table.
+  const alertedTables = new Set(orderAlerts.map((o) => Number(o.tableNo)));
+  const supplementalTableAlerts = tableAlerts
+    .filter((t) => !alertedTables.has(Number(t.tableNo)))
+    .map((t) => ({
+      _id: `table-${t.tableNo}`,
+      tableNo: t.tableNo,
+      allergiesInput: Array.isArray(t.currentUser?.allergies) ? t.currentUser.allergies : [],
+      allergyAlert: true,
+      status: t.status || "occupied",
+      createdAt: t.lastStatusChangedAt || new Date(),
+      source: "table"
+    }));
+
+  const normalizedOrderAlerts = orderAlerts.map((o) => ({
+    ...o.toObject(),
+    source: "order"
+  }));
+
+  return [...normalizedOrderAlerts, ...supplementalTableAlerts];
 };
 
 
@@ -195,7 +399,7 @@ exports.getManagerMetrics = async () => {
   };
 };
 
-exports.addDish = async ({ name, price, recipe, ingredients, imageUrl }) => {
+exports.addDish = async ({ name, price, recipe, ingredients, imageUrl, category }) => {
   if (!name || !price) {
     throw new Error("Dish name and price are required");
   }
@@ -220,6 +424,7 @@ exports.addDish = async ({ name, price, recipe, ingredients, imageUrl }) => {
   const dish = new Dish({
     dishId: nextDishId,
     name: name.trim(),
+    category: String(category || "General").trim() || "General",
     price,
     recipe,
     ingredients,
@@ -284,13 +489,18 @@ exports.updateInventoryItem = async (id, data) => {
   return { message: "Inventory item updated successfully", item };
 };
 
-exports.updateDish = async ({ dishId, name, price, recipe, ingredients, imageUrl }) => {
+exports.updateDish = async ({ dishId, name, price, recipe, ingredients, imageUrl, category }) => {
   if (!dishId) {
     throw new Error("dishId is required");
   }
 
   const updates = {};
   if (name !== undefined) updates.name = name.trim();
+  if (category !== undefined) {
+    const nextCategory = String(category || "").trim();
+    if (!nextCategory) throw new Error("category cannot be empty");
+    updates.category = nextCategory;
+  }
   if (price !== undefined) updates.price = price;
   if (recipe !== undefined) updates.recipe = recipe;
   if (imageUrl !== undefined) updates.imageUrl = imageUrl;
