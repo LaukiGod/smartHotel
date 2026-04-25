@@ -64,11 +64,14 @@ const resolveDishIds = async (rawDishes) => {
 };
 
 exports.getOrders = async () => {
-  const orders = await Order.find()
-    .populate("dishes")
-    .sort({ createdAt: -1 });
+  const startOfDay = new Date();
+  startOfDay.setHours(0, 0, 0, 0);
+  const endOfDay = new Date();
+  endOfDay.setHours(23, 59, 59, 999);
 
-  return orders;
+  return await Order.find({
+    createdAt: { $gte: startOfDay, $lte: endOfDay }
+  }).populate("dishes").sort({ createdAt: -1 });
 };
 
 exports.updateOrderStatus = async (data) => {
