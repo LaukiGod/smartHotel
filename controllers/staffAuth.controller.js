@@ -6,7 +6,7 @@ exports.googleCallback = (req, res) => {
   const staff = req.user;
   const token = sign({ id: staff._id, role: staff.role, name: staff.name, email: staff.email });
 
-  const frontendURL = process.env.FRONTEND_URL || "http://localhost:3000";
+  const frontendURL = process.env.FRONTEND_URL;
   res.redirect(`${frontendURL}/auth/callback?token=${token}`);
 };
 

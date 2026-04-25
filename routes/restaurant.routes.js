@@ -7,6 +7,7 @@ const { authenticate, authorize } = require("../middlewares/staffAuth.middleware
 // orders — ADMIN + STAFF
 router.get("/orders",       authenticate, authorize("ADMIN", "STAFF"), restaurantController.getOrders);
 router.post("/order-status",authenticate, authorize("ADMIN", "STAFF"), restaurantController.updateOrderStatus);
+router.get("/notifications",authenticate, authorize("ADMIN", "STAFF"), restaurantController.getNotifications);
 
 // allergy alerts — ADMIN + STAFF
 router.get("/alerts",       authenticate, authorize("ADMIN", "STAFF"), restaurantController.getAllergyAlerts);
@@ -19,6 +20,10 @@ router.delete("/inventory/:id",  authenticate, authorize("ADMIN"), restaurantCon
 
 // tables — public (QR scan needs this)
 router.get("/tables", restaurantController.getTables);
+router.patch("/tables/:tableNo/available", authenticate, authorize("ADMIN", "STAFF"), restaurantController.markTableAvailable);
+
+// manager metrics — ADMIN only
+router.get("/metrics", authenticate, authorize("ADMIN"), restaurantController.getManagerMetrics);
 
 // dishes — ADMIN only
 router.post("/add-dish",    authenticate, authorize("ADMIN"), restaurantController.addDish);
