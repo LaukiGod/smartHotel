@@ -1,7 +1,3 @@
-// user.service.js — FIXED: removed mongoose transaction from setAllergies
-// Transactions require a MongoDB replica set. For a standalone MongoDB instance,
-// we do the two writes sequentially. The logic is identical, just no session/transaction.
-
 const User = require("../entities/user.entity");
 const Table = require("../entities/table.entity");
 const Order = require("../entities/order.entity");
@@ -25,8 +21,8 @@ exports.loginTable = async (data) => {
 
   // Claim the table atomically — only succeeds if currently free
   const claimedTable = await Table.findOneAndUpdate(
-    { tableNo, status: "free" },
-    { status: "occupied" },
+    { tableNo, status: "available" },
+    { status: "occupied", occupiedSince: new Date(), lastStatusChangedAt: new Date() },
     { new: true }
   );
 
@@ -111,6 +107,8 @@ exports.orderFood = async (data) => {
     dishes,
     allergiesInput,
     allergyAlert: allergyResult.alert,
+    status: "created",
+    paymentStatus: "pending",
   });
 
   return {
@@ -119,6 +117,74 @@ exports.orderFood = async (data) => {
     allergyMatches: allergyResult.matches,
     order,
   };
+};
+
+exports.payOrder = async (data) => {
+  const { orderId, upiReference } = data;
+  if (!orderId) throw new Error("orderId is required");
+  if (!upiReference) throw new Error("upiReference is required");
+
+  const order = await Order.findByIdAndUpdate(
+    orderId,
+    { paymentStatus: "paid", status: "paid", upiReference },
+    { new: true }
+  );
+  if (!order) throw new Error("Order not found");
+
+  return { message: "Payment recorded", order };
+};
+
+exports.getTableOrders = async (tableNo) => {
+  if (!isTableValid(tableNo)) throw new Error("Invalid table number");
+  const orders = await Order.find({ tableNo }).populate("dishes").sort({ createdAt: -1 });
+  return orders;
+};
+
+exports.callWaiter = async (data) => {
+  const { tableNo } = data;
+  if (!isTableValid(tableNo)) throw new Error("Invalid table number");
+  const table = await Table.findOneAndUpdate(
+    { tableNo, status: { $in: ["occupied", "cleaning"] } },
+    { waiterRequested: true },
+    { new: true }
+  );
+  if (!table) throw new Error("Table not active");
+  return { message: "Waiter has been notified", tableNo };
+};
+
+exports.completeMeal = async (data) => {
+  const { tableNo } = data;
+  if (!isTableValid(tableNo)) throw new Error("Invalid table number");
+
+  const completedOrders = await Order.updateMany(
+    { tableNo, status: { $ne: "completed" } },
+    { status: "completed" }
+  );
+
+  await Table.findOneAndUpdate(
+    { tableNo, status: "occupied" },
+    { status: "cleaning", lastStatusChangedAt: new Date(), waiterRequested: false, allergyAlert: false },
+    { new: true }
+  );
+
+  return {
+    message: "Meal marked completed. Table sent for cleaning.",
+    completedOrders: completedOrders.modifiedCount || 0
+  };
+};
+
+exports.submitReview = async (data) => {
+  const { orderId, rating, comment } = data;
+  if (!orderId) throw new Error("orderId is required");
+  if (!rating || Number(rating) < 1 || Number(rating) > 5) throw new Error("rating must be between 1 and 5");
+
+  const order = await Order.findByIdAndUpdate(
+    orderId,
+    { review: { rating: Number(rating), comment: comment || "" } },
+    { new: true }
+  );
+  if (!order) throw new Error("Order not found");
+  return { message: "Thanks for your feedback", orderId: order._id };
 };
 
 exports.clearTable = async (data) => {
@@ -132,12 +198,19 @@ exports.clearTable = async (data) => {
   }
 
   const cleared = await Table.findOneAndUpdate(
-    { tableNo, status: "occupied" },
-    { status: "free", currentUser: null, allergyAlert: false },
+    { tableNo, status: { $in: ["occupied", "cleaning"] } },
+    {
+      status: "available",
+      currentUser: null,
+      allergyAlert: false,
+      waiterRequested: false,
+      occupiedSince: null,
+      lastStatusChangedAt: new Date()
+    },
     { new: true }
   );
 
-  if (!cleared) throw new Error("Table was already free");
+  if (!cleared) throw new Error("Table already available");
 
   return { message: "Table cleared" };
 };

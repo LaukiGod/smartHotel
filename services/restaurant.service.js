@@ -3,6 +3,8 @@ const Dish = require("../entities/dish.entity");
 const Inventory = require("../entities/inventory.entity");
 const Table = require("../entities/table.entity");
 
+const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
 exports.getOrders = async () => {
   const orders = await Order.find()
     .populate("dishes")
@@ -14,7 +16,7 @@ exports.getOrders = async () => {
 exports.updateOrderStatus = async (data) => {
   const { orderId, status } = data;
 
-  const validStatuses = ["pending", "preparing", "served"];
+  const validStatuses = ["created", "paid", "preparing", "served", "completed"];
   if (!validStatuses.includes(status)) {
     throw new Error(`Invalid status. Must be one of: ${validStatuses.join(", ")}`);
   }
@@ -33,7 +35,7 @@ exports.updateOrderStatus = async (data) => {
 exports.getAllergyAlerts = async () => {
   const alerts = await Order.find({
     allergyAlert: true,
-    status: { $nin: ["served", "completed"] }
+    status: { $nin: ["completed"] }
   })
     .populate("dishes")
     .sort({ createdAt: -1 });
@@ -121,6 +123,75 @@ exports.getTables = async () => {
   return tables;
 };
 
+exports.getNotifications = async () => {
+  const [newOrders, mealCompleted, waiterRequests] = await Promise.all([
+    Order.countDocuments({ status: "created" }),
+    Order.countDocuments({ status: "completed" }),
+    Table.countDocuments({ waiterRequested: true })
+  ]);
+
+  return {
+    newOrders,
+    mealCompleted,
+    waiterRequests
+  };
+};
+
+exports.markTableAvailable = async (tableNo) => {
+  const table = await Table.findOneAndUpdate(
+    { tableNo },
+    {
+      status: "available",
+      waiterRequested: false,
+      allergyAlert: false,
+      currentUser: null,
+      occupiedSince: null,
+      lastStatusChangedAt: new Date()
+    },
+    { new: true }
+  );
+  if (!table) throw new Error("Table not found");
+  return { message: "Table marked available", table };
+};
+
+exports.getManagerMetrics = async () => {
+  const [orders, tables] = await Promise.all([
+    Order.find().populate("dishes"),
+    Table.find()
+  ]);
+
+  const paidOrders = orders.filter((o) => o.paymentStatus === "paid");
+  const revenue = paidOrders.reduce(
+    (sum, order) => sum + (order.dishes || []).reduce((s, d) => s + (Number(d.price) || 0), 0),
+    0
+  );
+  const customersServed = new Set(orders.map((o) => `${o.tableNo}-${new Date(o.createdAt).toDateString()}`)).size;
+
+  const usage = {
+    available: tables.filter((t) => t.status === "available").length,
+    occupied: tables.filter((t) => t.status === "occupied").length,
+    cleaning: tables.filter((t) => t.status === "cleaning").length
+  };
+
+  const peakHoursMap = new Map();
+  orders.forEach((order) => {
+    const hour = new Date(order.createdAt).getHours();
+    peakHoursMap.set(hour, (peakHoursMap.get(hour) || 0) + 1);
+  });
+  const peakHours = Array.from(peakHoursMap.entries())
+    .map(([hour, ordersCount]) => ({ hour, orders: ordersCount }))
+    .sort((a, b) => b.orders - a.orders)
+    .slice(0, 5);
+
+  return {
+    customersServed,
+    revenue,
+    tableUsage: usage,
+    peakHours,
+    totalOrders: orders.length
+  };
+};
+
 exports.addDish = async ({ name, price, recipe, ingredients, imageUrl }) => {
   if (!name || !price) {
     throw new Error("Dish name and price are required");
@@ -130,9 +201,9 @@ exports.addDish = async ({ name, price, recipe, ingredients, imageUrl }) => {
     throw new Error("ingredients must be an array of strings");
   }
 
-  // ✅ Handle default image upfront, cleanly
+  // Use env-configured fallback image instead of hardcoded URL
   if (!imageUrl || typeof imageUrl !== "string") {
-    imageUrl = 'https://images.unsplash.com/photo-1555939594-58d7cb561ad1?w=400&q=70';
+    imageUrl = process.env.DEFAULT_DISH_IMAGE_URL;
   }
 
   const existing = await Dish.findOne({ name: new RegExp(`^${name.trim()}$`, "i") });
@@ -173,7 +244,24 @@ exports.updateInventoryItem = async (id, data) => {
     throw new Error("Inventory item ID is required");
   }
 
+  const item = await Inventory.findById(id);
+  if (!item) throw new Error("Inventory item not found");
+
   const updates = {};
+  if (data.name !== undefined) {
+    const nextName = String(data.name || "").trim();
+    if (!nextName) throw new Error("Name cannot be empty");
+
+    const existingWithName = await Inventory.findOne({
+      _id: { $ne: id },
+      name: new RegExp(`^${escapeRegex(nextName)}$`, "i")
+    });
+    if (existingWithName) {
+      throw new Error(`Inventory item "${nextName}" already exists`);
+    }
+
+    updates.name = nextName;
+  }
   if (data.quantity !== undefined) {
     if (data.quantity < 0) throw new Error("Quantity cannot be negative");
     updates.quantity = data.quantity;
@@ -187,13 +275,8 @@ exports.updateInventoryItem = async (id, data) => {
     throw new Error("No fields provided to update");
   }
 
-  const item = await Inventory.findByIdAndUpdate(
-    id,
-    updates,
-    { new: true, runValidators: true }
-  );
-
-  if (!item) throw new Error("Inventory item not found");
+  Object.assign(item, updates);
+  await item.save();
 
   return { message: "Inventory item updated successfully", item };
 };

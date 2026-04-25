@@ -40,6 +40,51 @@ exports.orderFood = async (req, res) => {
   }
 };
 
+exports.payOrder = async (req, res) => {
+  try {
+    const result = await userService.payOrder(req.body);
+    res.status(200).json(result);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+exports.getTableOrders = async (req, res) => {
+  try {
+    const result = await userService.getTableOrders(Number(req.params.tableNo));
+    res.status(200).json(result);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+exports.callWaiter = async (req, res) => {
+  try {
+    const result = await userService.callWaiter(req.body);
+    res.status(200).json(result);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+exports.completeMeal = async (req, res) => {
+  try {
+    const result = await userService.completeMeal(req.body);
+    res.status(200).json(result);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+exports.submitReview = async (req, res) => {
+  try {
+    const result = await userService.submitReview(req.body);
+    res.status(200).json(result);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
 exports.clearTable = async (req, res) => {
   try {
     const result = await userService.clearTable(req.body);
