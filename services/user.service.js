@@ -43,6 +43,10 @@ const resolveDishIds = async (rawDishes) => {
   return { resolvedDishIds, dishDocs };
 };
 
+function lineItemsFromDishIds(resolvedDishIds) {
+  return resolvedDishIds.map((dishId) => ({ dish: dishId, status: "queued" }));
+}
+
 exports.loginTable = async (data) => {
   const { tableNo, name, phoneNo, allowExistingSession } = data;
 
@@ -142,7 +146,7 @@ exports.orderFood = async (data) => {
     throw new Error(`Table ${tableNo} is not active`);
   }
 
-  const ingredientNames = dishDocs.flatMap((dish) => dish.ingredients);
+  const ingredientNames = dishDocs.flatMap((dish) => dish.ingredients || []);
   const allergiesInput = table.currentUser?.allergies || [];
 
   const allergyResult = await checkAllergyRisk(allergiesInput, ingredientNames);
@@ -151,31 +155,64 @@ exports.orderFood = async (data) => {
     console.warn("Allergy alert for table", tableNo, "matches:", allergyResult.matches);
   }
 
-  const order = await Order.create({
+  // Re-use the latest open ticket for this table so "edit details → menu → checkout again"
+  // updates the same admin order instead of creating a duplicate (until meal is served/completed).
+  const OPEN_ORDER_STATUSES = ["created", "paid", "preparing"];
+  const existing = await Order.findOne({
     tableNo,
-    dishes: resolvedDishIds,
-    allergiesInput,
-    allergyAlert: allergyResult.alert,
-    status: "created",
-    paymentStatus: "pending",
-  });
+    status: { $in: OPEN_ORDER_STATUSES },
+  }).sort({ createdAt: -1 });
+
+  let order;
+  let updatedExisting = false;
+  if (existing) {
+    order = existing;
+    order.dishes = resolvedDishIds;
+    order.lineItems = lineItemsFromDishIds(resolvedDishIds);
+    order.allergiesInput = allergiesInput;
+    order.allergyAlert = allergyResult.alert;
+    await order.save();
+    updatedExisting = true;
+  } else {
+    order = await Order.create({
+      tableNo,
+      dishes: resolvedDishIds,
+      lineItems: lineItemsFromDishIds(resolvedDishIds),
+      allergiesInput,
+      allergyAlert: allergyResult.alert,
+      status: "created",
+      paymentStatus: "pending",
+    });
+  }
+
+  await Table.findOneAndUpdate(
+    { tableNo },
+    { allergyAlert: Boolean(order.allergyAlert) },
+    { new: true }
+  );
+
+  const populated = await Order.findById(order._id).populate("dishes").populate("lineItems.dish");
 
   return {
-    message: "Order placed",
+    message: updatedExisting ? "Order updated" : "Order placed",
     allergyAlert: allergyResult.alert,
     allergyMatches: allergyResult.matches,
-    order,
+    order: populated || order,
+    orderId: order._id,
   };
 };
 
 exports.payOrder = async (data) => {
   const { orderId, upiReference } = data;
   if (!orderId) throw new Error("orderId is required");
-  if (!upiReference) throw new Error("upiReference is required");
+  const ref =
+    upiReference != null && String(upiReference).trim()
+      ? String(upiReference).trim()
+      : `confirmed-${Date.now()}`;
 
   const order = await Order.findByIdAndUpdate(
     orderId,
-    { paymentStatus: "paid", status: "paid", upiReference },
+    { paymentStatus: "paid", status: "paid", upiReference: ref },
     { new: true }
   );
   if (!order) throw new Error("Order not found");
@@ -185,8 +222,32 @@ exports.payOrder = async (data) => {
 
 exports.getTableOrders = async (tableNo) => {
   if (!isTableValid(tableNo)) throw new Error("Invalid table number");
-  const orders = await Order.find({ tableNo }).populate("dishes").sort({ createdAt: -1 });
+  const orders = await Order.find({ tableNo })
+    .populate("dishes")
+    .populate("lineItems.dish")
+    .sort({ createdAt: -1 });
   return orders;
+};
+
+/** Public read for customer SPA: occupied table + seated user identity (matches session after login). */
+exports.getTableSession = async (tableNo) => {
+  const n = Number(tableNo);
+  if (!isTableValid(n)) throw new Error("Invalid table number");
+  const table = await Table.findOne({ tableNo: n }).populate("currentUser");
+  if (!table) {
+    return { valid: false, reason: "not_found" };
+  }
+  if (table.status !== "occupied" || !table.currentUser) {
+    return { valid: false, reason: "not_occupied" };
+  }
+  const u = table.currentUser;
+  return {
+    valid: true,
+    userId: String(u._id),
+    name: u.name,
+    phoneNo: u.phoneNo,
+    tableNo: n,
+  };
 };
 
 exports.callWaiter = async (data) => {

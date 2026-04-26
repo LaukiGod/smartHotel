@@ -88,8 +88,7 @@ const seedTables = async () => {
     console.log('🎉 [PostInstall] Seeding completed successfully!');
     await mongoose.disconnect();
     process.exit(0);
-  })
-  .catch((err) => {
+  } catch (err) {
     console.error('❌ Seeding failed:', err.message);
     if (err.stack) console.error(err.stack);
     console.log(

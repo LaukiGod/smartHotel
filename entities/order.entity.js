@@ -13,6 +13,18 @@ const orderSchema = new mongoose.Schema({
     }
   ],
 
+  /** One entry per physical item (same dish × qty = multiple rows), with kitchen progress. */
+  lineItems: [
+    {
+      dish: { type: mongoose.Schema.Types.ObjectId, ref: "Dish", required: true },
+      status: {
+        type: String,
+        enum: ["queued", "preparing", "ready", "served"],
+        default: "queued"
+      }
+    }
+  ],
+
   allergiesInput: {
     type: [String],
     default: []

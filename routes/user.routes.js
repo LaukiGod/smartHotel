@@ -12,6 +12,9 @@ router.post("/set-allergies", userController.setAllergies);
 // get menu
 router.get("/menu", userController.getMenu);
 
+// seated customer identity for this table (for session refresh / validation)
+router.get("/table-session/:tableNo", userController.getTableSession);
+
 // order food
 router.post("/order", userController.orderFood);
 router.post("/pay", userController.payOrder);

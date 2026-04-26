@@ -63,6 +63,10 @@ const resolveDishIds = async (rawDishes) => {
   return { resolvedDishIds, dishDocs };
 };
 
+function lineItemsFromDishIds(resolvedDishIds) {
+  return resolvedDishIds.map((dishId) => ({ dish: dishId, status: "queued" }));
+}
+
 exports.getOrders = async () => {
   const startOfDay = new Date();
   startOfDay.setHours(0, 0, 0, 0);
@@ -71,7 +75,10 @@ exports.getOrders = async () => {
 
   return await Order.find({
     createdAt: { $gte: startOfDay, $lte: endOfDay }
-  }).populate("dishes").sort({ createdAt: -1 });
+  })
+    .populate("dishes")
+    .populate("lineItems.dish")
+    .sort({ createdAt: -1 });
 };
 
 exports.updateOrderStatus = async (data) => {
@@ -141,6 +148,7 @@ exports.createOrder = async (data) => {
   const order = await Order.create({
     tableNo,
     dishes: resolvedDishIds,
+    lineItems: lineItemsFromDishIds(resolvedDishIds),
     allergiesInput: user.allergies || [],
     allergyAlert: allergyResult.alert,
     status: "created",
@@ -153,7 +161,7 @@ exports.createOrder = async (data) => {
     await Table.findOneAndUpdate({ tableNo }, { allergyAlert: true }, { new: true });
   }
 
-  const populated = await Order.findById(order._id).populate("dishes");
+  const populated = await Order.findById(order._id).populate("dishes").populate("lineItems.dish");
 
   return {
     message: "Order created by staff",
@@ -189,6 +197,7 @@ exports.updateOrderDetails = async (data) => {
     const resolved = await resolveDishIds(nextDishes);
     dishDocs = resolved.dishDocs;
     order.dishes = resolved.resolvedDishIds;
+    order.lineItems = lineItemsFromDishIds(resolved.resolvedDishIds);
   } else {
     dishDocs = await Dish.find({ _id: { $in: order.dishes } });
   }
@@ -209,11 +218,44 @@ exports.updateOrderDetails = async (data) => {
     { new: true }
   );
 
-  const updatedOrder = await Order.findById(order._id).populate("dishes");
+  const updatedOrder = await Order.findById(order._id).populate("dishes").populate("lineItems.dish");
   return {
     message: "Order details updated",
     order: updatedOrder || order
   };
+};
+
+const LINE_ITEM_STATUSES = ["queued", "preparing", "ready", "served"];
+
+exports.updateLineItemStatus = async (data) => {
+  const { orderId, lineIndex, status } = data || {};
+  if (!orderId) throw new Error("orderId is required");
+  if (lineIndex === undefined || lineIndex === null || Number(lineIndex) < 0) {
+    throw new Error("lineIndex is required");
+  }
+  if (!LINE_ITEM_STATUSES.includes(status)) {
+    throw new Error(`Invalid status. Must be one of: ${LINE_ITEM_STATUSES.join(", ")}`);
+  }
+
+  const order = await Order.findById(orderId);
+  if (!order) throw new Error("Order not found");
+
+  if (!order.lineItems?.length && order.dishes?.length) {
+    const ids = order.dishes.map((d) => (d && d._id ? d._id : d));
+    order.lineItems = lineItemsFromDishIds(ids);
+  }
+
+  const idx = Number(lineIndex);
+  if (!order.lineItems?.length || idx >= order.lineItems.length) {
+    throw new Error("Invalid line index");
+  }
+
+  order.lineItems[idx].status = status;
+  order.markModified("lineItems");
+  await order.save();
+
+  const populated = await Order.findById(orderId).populate("dishes").populate("lineItems.dish");
+  return { message: "Line item updated", order: populated };
 };
 
 exports.getAllergyAlerts = async () => {

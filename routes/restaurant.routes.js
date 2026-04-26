@@ -7,6 +7,7 @@ const { authenticate, authorize } = require("../middlewares/staffAuth.middleware
 // orders — ADMIN + STAFF
 router.get("/orders",       authenticate, authorize("ADMIN", "STAFF"), restaurantController.getOrders);
 router.post("/order-status",authenticate, authorize("ADMIN", "STAFF"), restaurantController.updateOrderStatus);
+router.post("/line-item-status", authenticate, authorize("ADMIN", "STAFF"), restaurantController.updateLineItemStatus);
 router.post("/create-order",authenticate, authorize("ADMIN", "STAFF"), restaurantController.createOrder);
 router.put("/update-order", authenticate, authorize("ADMIN", "STAFF"), restaurantController.updateOrderDetails);
 router.get("/notifications",authenticate, authorize("ADMIN", "STAFF"), restaurantController.getNotifications);

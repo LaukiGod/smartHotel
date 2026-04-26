@@ -31,6 +31,15 @@ exports.getMenu = async (req, res) => {
   }
 };
 
+exports.getTableSession = async (req, res) => {
+  try {
+    const result = await userService.getTableSession(Number(req.params.tableNo));
+    res.status(200).json(result);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
 exports.orderFood = async (req, res) => {
   try {
     const result = await userService.orderFood(req.body);
