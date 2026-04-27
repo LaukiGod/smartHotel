@@ -229,6 +229,24 @@ exports.getTableOrders = async (tableNo) => {
   return orders;
 };
 
+/**
+ * GET table-select (browse-first): ensure table row exists; does not occupy the table or create a user.
+ * Customer SPA opens `/customer/menu?tableId=&flow=quick` — details are collected at order confirm.
+ */
+exports.selectTableQuickBrowse = async (tableNo) => {
+  const n = Number(tableNo);
+  if (!isTableValid(n)) throw new Error("Invalid table number");
+  let table = await Table.findOne({ tableNo: n });
+  if (!table) {
+    table = await Table.create({ tableNo: n });
+  }
+  return {
+    tableNo: n,
+    flow: "quick",
+    entryPath: `/customer/menu?tableId=${n}&flow=quick`,
+  };
+};
+
 /** Public read for customer SPA: occupied table + seated user identity (matches session after login). */
 exports.getTableSession = async (tableNo) => {
   const n = Number(tableNo);

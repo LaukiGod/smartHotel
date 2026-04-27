@@ -6,6 +6,9 @@ const userController = require("../controllers/user.controller");
 // login using table number
 router.post("/login-table", userController.loginTable);
 
+// browse-first: GET table → open menu without guest details (details at order confirm). Optional ?redirect=1
+router.get("/table-select/:tableNo", userController.selectTableQuickBrowse);
+
 // set allergies
 router.post("/set-allergies", userController.setAllergies);
 

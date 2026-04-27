@@ -40,6 +40,21 @@ exports.getTableSession = async (req, res) => {
   }
 };
 
+/** Browse-first entry: JSON or optional 302 to customer menu (query `redirect=1` + CUSTOMER_APP_ORIGIN). */
+exports.selectTableQuickBrowse = async (req, res) => {
+  try {
+    const result = await userService.selectTableQuickBrowse(Number(req.params.tableNo));
+    const base = process.env.CUSTOMER_APP_ORIGIN || process.env.FRONTEND_ORIGIN;
+    if (req.query.redirect === "1" && base) {
+      const url = `${String(base).replace(/\/$/, "")}${result.entryPath}`;
+      return res.redirect(302, url);
+    }
+    res.status(200).json(result);
+  } catch (error) {
+    res.status(400).json({ message: error.message });
+  }
+};
+
 exports.orderFood = async (req, res) => {
   try {
     const result = await userService.orderFood(req.body);
