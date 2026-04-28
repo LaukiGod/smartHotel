@@ -8,6 +8,15 @@ const mongoose = require("mongoose");
 
 const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const ORDER_STATUSES = ["created", "paid", "preparing", "served", "completed"];
+const isHttpUrl = (value) => {
+  if (!value) return false;
+  try {
+    const u = new URL(String(value));
+    return u.protocol === "http:" || u.protocol === "https:";
+  } catch {
+    return false;
+  }
+};
 
 const normalizeAllergies = (raw) => {
   if (Array.isArray(raw)) {
@@ -103,14 +112,14 @@ exports.createOrder = async (data) => {
   const tableNo = Number(data?.tableNo);
   const dishes = Array.isArray(data?.dishes) ? data.dishes : [];
   const customerName = String(data?.customerName || "Walk-in").trim() || "Walk-in";
-  const phoneNo = String(data?.phoneNo || "0000000000").trim() || "0000000000";
+  const phoneNo = data?.phoneNo == null ? "" : String(data.phoneNo).trim();
   const allergiesInput = normalizeAllergies(
     data?.allergiesInput ?? data?.allergies ?? data?.allergy
   );
 
   if (!Number.isFinite(tableNo) || tableNo <= 0) throw new Error("Valid tableNo is required");
   if (!Array.isArray(dishes) || dishes.length === 0) throw new Error("dishes must be a non-empty array");
-  if (!/^\d{10}$/.test(phoneNo)) throw new Error("phoneNo must be exactly 10 digits");
+  if (phoneNo && !/^\d{10}$/.test(phoneNo)) throw new Error("phoneNo must be exactly 10 digits");
 
   // Ensure table exists
   let table = await Table.findOne({ tableNo });
@@ -450,10 +459,17 @@ exports.addDish = async ({ name, price, recipe, ingredients, imageUrl, category 
     throw new Error("ingredients must be an array of strings");
   }
 
-  // Use env-configured fallback image instead of hardcoded URL
-  if (!imageUrl || typeof imageUrl !== "string") {
-    imageUrl = process.env.DEFAULT_DISH_IMAGE_URL;
+  // Image URL is optional; when provided must be http(s).
+  if (imageUrl != null && String(imageUrl).trim()) {
+    const trimmed = String(imageUrl).trim();
+    if (!isHttpUrl(trimmed)) throw new Error("imageUrl must be a valid http(s) URL");
+    imageUrl = trimmed;
+  } else {
+    imageUrl = "";
   }
+
+  // Recipe is optional (Dish schema defaults to "").
+  recipe = recipe == null ? "" : String(recipe);
 
   const existing = await Dish.findOne({ name: new RegExp(`^${name.trim()}$`, "i") });
   if (existing) {
@@ -544,8 +560,12 @@ exports.updateDish = async ({ dishId, name, price, recipe, ingredients, imageUrl
     updates.category = nextCategory;
   }
   if (price !== undefined) updates.price = price;
-  if (recipe !== undefined) updates.recipe = recipe;
-  if (imageUrl !== undefined) updates.imageUrl = imageUrl;
+  if (recipe !== undefined) updates.recipe = recipe == null ? "" : String(recipe);
+  if (imageUrl !== undefined) {
+    const next = imageUrl == null ? "" : String(imageUrl).trim();
+    if (next && !isHttpUrl(next)) throw new Error("imageUrl must be a valid http(s) URL");
+    updates.imageUrl = next;
+  }
   if (ingredients !== undefined) {
     if (!Array.isArray(ingredients)) {
       throw new Error("ingredients must be an array of strings");

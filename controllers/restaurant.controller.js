@@ -85,8 +85,8 @@ exports.addDish = async (req, res) => {
   try {
     const { name, price, recipe, ingredients, imageUrl, category } = req.body;
 
-    if (!name || !price || !recipe) {
-      return res.status(400).json({ message: 'Name, price, and recipe are required' });
+    if (!name || !price) {
+      return res.status(400).json({ message: 'Name and price are required' });
     }
 
     const newDish = await restaurantService.addDish({ name, price, recipe, ingredients, imageUrl, category });

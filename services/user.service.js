@@ -54,7 +54,10 @@ exports.loginTable = async (data) => {
     throw new Error("Invalid table number");
   }
   if (!name) throw new Error("Name is required");
-  if (!phoneNo) throw new Error("Phone number is required");
+  const phone = phoneNo == null ? "" : String(phoneNo).trim();
+  if (phone && !/^\d{10}$/.test(phone)) {
+    throw new Error("Phone number must be exactly 10 digits");
+  }
 
   let table = await Table.findOne({ tableNo });
   if (!table) {
@@ -79,7 +82,7 @@ exports.loginTable = async (data) => {
       }
 
       occupiedTable.currentUser.name = name;
-      occupiedTable.currentUser.phoneNo = phoneNo;
+      if (phone) occupiedTable.currentUser.phoneNo = phone;
       await occupiedTable.currentUser.save();
 
       return { message: "Table session updated", user: occupiedTable.currentUser };
@@ -89,7 +92,7 @@ exports.loginTable = async (data) => {
   }
 
   // Create user only after table is secured — nothing to roll back on failure
-  const user = await User.create({ tableNo, name, phoneNo, role: "user" });
+  const user = await User.create({ tableNo, name, phoneNo: phone, role: "user" });
 
   // Attach user to table
   claimedTable.currentUser = user._id;
