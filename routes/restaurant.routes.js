@@ -30,4 +30,7 @@ router.post("/add-dish",    authenticate, authorize("ADMIN"), restaurantControll
 router.put("/update-dish",  authenticate, authorize("ADMIN"), restaurantController.updateDish);
 router.delete("/dish/:id",  authenticate, authorize("ADMIN"), restaurantController.deleteDish);
 
+// create qr code for table
+router.get("/tables/:tableNo/qrcode", authenticate, authorize("ADMIN", "STAFF"), restaurantController.generateTableQRCode);
+
 module.exports = router;
