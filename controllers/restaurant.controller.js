@@ -1,4 +1,5 @@
 const restaurantService = require("../services/restaurant.service");
+const { generateTableQRCode } = require("../services/qr.service");
 
 exports.getOrders = async (req, res) => {
   try {
@@ -165,6 +166,19 @@ exports.getManagerMetrics = async (req, res) => {
   try {
     const result = await restaurantService.getManagerMetrics();
     res.status(200).json(result);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// Generate QR code for table
+exports.generateTableQRCode = async (req, res) => {
+  try {
+    const tableNo = Number(req.params.tableNo);
+    const qrCodeData = await generateTableQRCode(tableNo);
+    res.set("Content-Type", "image/png");
+    res.set("Content-Disposition", `attachment; filename=table-${tableNo}-qr.png`);
+    res.status(200).send(qrCodeData);
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
