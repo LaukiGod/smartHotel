@@ -170,10 +170,22 @@ exports.orderFood = async (data) => {
   let updatedExisting = false;
   if (existing) {
     order = existing;
-    order.dishes = resolvedDishIds;
-    order.lineItems = lineItemsFromDishIds(resolvedDishIds);
+    // Append to the same open order (do not replace).
+    const prevDishes = Array.isArray(order.dishes) ? order.dishes : [];
+    const nextDishes = prevDishes.concat(resolvedDishIds);
+    order.dishes = nextDishes;
+
+    const prevLines = Array.isArray(order.lineItems) ? order.lineItems : [];
+    order.lineItems = prevLines.concat(lineItemsFromDishIds(resolvedDishIds));
+
+    // Recompute allergy risk for the full (combined) order.
+    const uniqueDishIds = Array.from(new Set(nextDishes.map((d) => String(d)))).map((id) => new mongoose.Types.ObjectId(id));
+    const fullDishDocs = await Dish.find({ _id: { $in: uniqueDishIds } });
+    const fullIngredientNames = fullDishDocs.flatMap((dish) => dish.ingredients || []);
+    const fullAllergyResult = await checkAllergyRisk(allergiesInput, fullIngredientNames);
+
     order.allergiesInput = allergiesInput;
-    order.allergyAlert = allergyResult.alert;
+    order.allergyAlert = fullAllergyResult.alert;
     await order.save();
     updatedExisting = true;
   } else {
@@ -197,8 +209,8 @@ exports.orderFood = async (data) => {
   const populated = await Order.findById(order._id).populate("dishes").populate("lineItems.dish");
 
   return {
-    message: updatedExisting ? "Order updated" : "Order placed",
-    allergyAlert: allergyResult.alert,
+    message: updatedExisting ? "Items added to existing order" : "Order placed",
+    allergyAlert: updatedExisting ? Boolean(order.allergyAlert) : allergyResult.alert,
     allergyMatches: allergyResult.matches,
     order: populated || order,
     orderId: order._id,
