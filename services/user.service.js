@@ -160,7 +160,7 @@ exports.orderFood = async (data) => {
 
   // Re-use the latest open ticket for this table so "edit details → menu → checkout again"
   // updates the same admin order instead of creating a duplicate (until meal is served/completed).
-  const OPEN_ORDER_STATUSES = ["created", "paid", "preparing"];
+  const OPEN_ORDER_STATUSES = ["created", "confirmed", "preparing"];
   const existing = await Order.findOne({
     tableNo,
     status: { $in: OPEN_ORDER_STATUSES },
@@ -195,8 +195,7 @@ exports.orderFood = async (data) => {
       lineItems: lineItemsFromDishIds(resolvedDishIds),
       allergiesInput,
       allergyAlert: allergyResult.alert,
-      status: "created",
-      paymentStatus: "pending",
+      status: "confirmed",
     });
   }
 
@@ -217,27 +216,29 @@ exports.orderFood = async (data) => {
   };
 };
 
-exports.payOrder = async (data) => {
-  const { orderId, upiReference } = data;
+exports.confirmOrder = async (data) => {
+  const { orderId } = data;
   if (!orderId) throw new Error("orderId is required");
-  const ref =
-    upiReference != null && String(upiReference).trim()
-      ? String(upiReference).trim()
-      : `confirmed-${Date.now()}`;
 
   const order = await Order.findByIdAndUpdate(
     orderId,
-    { paymentStatus: "paid", status: "paid", upiReference: ref },
+    { status: "confirmed" },
     { new: true }
   );
   if (!order) throw new Error("Order not found");
 
-  return { message: "Payment recorded", order };
+  return { message: "Order confirmed", order };
 };
 
 exports.getTableOrders = async (tableNo) => {
   if (!isTableValid(tableNo)) throw new Error("Invalid table number");
-  const orders = await Order.find({ tableNo })
+  const table = await Table.findOne({ tableNo }).select({ occupiedSince: 1 });
+  const query = { tableNo };
+  // Restrict history to current seating session so old/completed sessions are not shown in tracking.
+  if (table?.occupiedSince) {
+    query.createdAt = { $gte: table.occupiedSince };
+  }
+  const orders = await Order.find(query)
     .populate("dishes")
     .populate("lineItems.dish")
     .sort({ createdAt: -1 });
@@ -245,19 +246,66 @@ exports.getTableOrders = async (tableNo) => {
 };
 
 /**
- * GET table-select (browse-first): ensure table row exists; does not occupy the table or create a user.
- * Customer SPA opens `/customer/menu?tableId=&flow=quick` — details are collected at order confirm.
+ * GET table-select (quick entry): claim table immediately and start a lightweight user session.
+ * Useful for QR-based direct booking where scanning should reserve/occupy the table in staff panel.
  */
 exports.selectTableQuickBrowse = async (tableNo) => {
   const n = Number(tableNo);
   if (!isTableValid(n)) throw new Error("Invalid table number");
-  let table = await Table.findOne({ tableNo: n });
-  if (!table) {
-    table = await Table.create({ tableNo: n });
+  let table = await Table.findOne({ tableNo: n }).populate("currentUser");
+  if (!table) table = await Table.create({ tableNo: n });
+
+  // Idempotent behavior: if already occupied with a seated user, keep that active session.
+  if (table.status === "occupied" && table.currentUser) {
+    return {
+      tableNo: n,
+      flow: "quick",
+      user: {
+        _id: String(table.currentUser._id),
+        name: table.currentUser.name || "Guest",
+        tableNo: n
+      },
+      entryPath: `/customer/menu?tableId=${n}&flow=quick`,
+    };
   }
+
+  // Claim table atomically.
+  // Accept legacy rows where status might be missing/null/empty, and rows marked occupied but without currentUser.
+  const claimed = await Table.findOneAndUpdate(
+    {
+      tableNo: n,
+      $or: [
+        { status: "available" },
+        { status: null },
+        { status: "" },
+        { status: { $exists: false } },
+        { status: "occupied", currentUser: null }
+      ]
+    },
+    { status: "occupied", occupiedSince: new Date(), lastStatusChangedAt: new Date() },
+    { new: true }
+  );
+  if (!claimed) throw new Error("Table not available");
+
+  // Create a minimal user session so staff panel can see the occupied table with currentUser.
+  const quickUser = await User.create({
+    tableNo: n,
+    name: "Quick Guest",
+    phoneNo: "",
+    role: "user"
+  });
+
+  claimed.currentUser = quickUser._id;
+  await claimed.save();
+
   return {
     tableNo: n,
     flow: "quick",
+    user: {
+      _id: String(quickUser._id),
+      name: quickUser.name,
+      tableNo: n
+    },
     entryPath: `/customer/menu?tableId=${n}&flow=quick`,
   };
 };

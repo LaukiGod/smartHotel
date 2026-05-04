@@ -40,13 +40,19 @@ exports.getTableSession = async (req, res) => {
   }
 };
 
-/** Browse-first entry: JSON or optional 302 to customer menu (query `redirect=1` + CUSTOMER_APP_ORIGIN). */
+/** Quick table entry: returns JSON for API callers, redirects browser document requests to customer menu. */
 exports.selectTableQuickBrowse = async (req, res) => {
   try {
     const result = await userService.selectTableQuickBrowse(Number(req.params.tableNo));
     const base = process.env.CUSTOMER_APP_ORIGIN || process.env.FRONTEND_ORIGIN;
-    if (req.query.redirect === "1" && base) {
-      const url = `${String(base).replace(/\/$/, "")}${result.entryPath}`;
+    const isDocRequest = req.get("sec-fetch-dest") === "document";
+    const wantsRedirect = req.query.redirect === "1" || (req.query.redirect == null && isDocRequest);
+    if (wantsRedirect) {
+      // Prefer configured absolute frontend origin; otherwise fall back to relative redirect.
+      // Relative redirect works with frontend dev-server proxy URLs like /api/user/table-select/:id.
+      const url = base
+        ? `${String(base).replace(/\/$/, "")}${result.entryPath}`
+        : result.entryPath;
       return res.redirect(302, url);
     }
     res.status(200).json(result);
@@ -64,9 +70,9 @@ exports.orderFood = async (req, res) => {
   }
 };
 
-exports.payOrder = async (req, res) => {
+exports.confirmOrder = async (req, res) => {
   try {
-    const result = await userService.payOrder(req.body);
+    const result = await userService.confirmOrder(req.body);
     res.status(200).json(result);
   } catch (error) {
     res.status(500).json({ message: error.message });

@@ -37,25 +37,8 @@ const orderSchema = new mongoose.Schema({
 
   status: {
     type: String,
-    enum: ["created", "paid", "preparing", "served", "completed"],
+    enum: ["created", "confirmed", "preparing", "served", "completed"],
     default: "created"
-  },
-
-  paymentMethod: {
-    type: String,
-    enum: ["UPI"],
-    default: "UPI"
-  },
-
-  paymentStatus: {
-    type: String,
-    enum: ["pending", "paid"],
-    default: "pending"
-  },
-
-  upiReference: {
-    type: String,
-    default: ""
   },
 
   review: {

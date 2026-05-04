@@ -20,7 +20,7 @@ router.get("/table-session/:tableNo", userController.getTableSession);
 
 // order food
 router.post("/order", userController.orderFood);
-router.post("/pay", userController.payOrder);
+router.post("/confirm-order", userController.confirmOrder);
 router.get("/orders/:tableNo", userController.getTableOrders);
 router.post("/call-waiter", userController.callWaiter);
 router.post("/meal-complete", userController.completeMeal);

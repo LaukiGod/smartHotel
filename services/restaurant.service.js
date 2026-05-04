@@ -7,7 +7,7 @@ const { checkAllergyRisk } = require("../utils/allergyChecker");
 const mongoose = require("mongoose");
 
 const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-const ORDER_STATUSES = ["created", "paid", "preparing", "served", "completed"];
+const ORDER_STATUSES = ["created", "confirmed", "preparing", "served", "completed"];
 const isHttpUrl = (value) => {
   if (!value) return false;
   try {
@@ -160,9 +160,7 @@ exports.createOrder = async (data) => {
     lineItems: lineItemsFromDishIds(resolvedDishIds),
     allergiesInput: user.allergies || [],
     allergyAlert: allergyResult.alert,
-    status: "created",
-    paymentStatus: "pending",
-    paymentMethod: "UPI"
+    status: "confirmed"
   });
 
   // Propagate table allergy alert if needed
@@ -459,7 +457,7 @@ exports.deleteTableById = async (id) => {
 
 exports.getNotifications = async () => {
   const [newOrders, mealCompleted, waiterRequests] = await Promise.all([
-    Order.countDocuments({ status: "created" }),
+    Order.countDocuments({ status: { $in: ["created", "confirmed"] } }),
     Order.countDocuments({ status: "completed" }),
     Table.countDocuments({ waiterRequested: true })
   ]);
@@ -494,8 +492,7 @@ exports.getManagerMetrics = async () => {
     Table.find()
   ]);
 
-  const paidOrders = orders.filter((o) => o.paymentStatus === "paid");
-  const revenue = paidOrders.reduce(
+  const revenue = orders.reduce(
     (sum, order) => sum + (order.dishes || []).reduce((s, d) => s + (Number(d.price) || 0), 0),
     0
   );
