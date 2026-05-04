@@ -381,6 +381,82 @@ exports.getTables = async () => {
   return tables;
 };
 
+exports.getTableCount = async () => {
+  const max = await Table.findOne().sort({ tableNo: -1 }).select({ tableNo: 1 });
+  return {
+    count: max?.tableNo ? Number(max.tableNo) : 0
+  };
+};
+
+exports.increaseTableCount = async () => {
+  const max = await Table.findOne().sort({ tableNo: -1 }).select({ tableNo: 1 });
+  const currentMax = max?.tableNo ? Number(max.tableNo) : 0;
+  const start = currentMax + 1;
+  const end = currentMax + 1;
+
+  const toInsert = [];
+  for (let tableNo = start; tableNo <= end; tableNo += 1) {
+    toInsert.push({ tableNo });
+  }
+
+  if (toInsert.length) {
+    await Table.insertMany(toInsert, { ordered: true });
+  }
+
+  return {
+    message: `Added ${toInsert.length} table(s)`,
+    from: start,
+    to: end,
+    count: end
+  };
+};
+
+exports.deleteTableById = async (id) => {
+  if (!mongoose.Types.ObjectId.isValid(id)) {
+    throw new Error("Invalid table id");
+  }
+
+  const maxBefore = await Table.findOne().sort({ tableNo: -1 }).select({ tableNo: 1 });
+  const currentMax = maxBefore?.tableNo ? Number(maxBefore.tableNo) : 0;
+  if (currentMax === 0) throw new Error("No tables exist");
+
+  const table = await Table.findById(id).select({
+    tableNo: 1,
+    status: 1,
+    currentUser: 1,
+    waiterRequested: 1,
+    allergyAlert: 1
+  });
+  if (!table) throw new Error("Table not found");
+
+  // Keep tableNos contiguous so that the next "add" becomes (currentMax + 1).
+  // This means we only allow deleting the current highest-numbered table.
+  if (Number(table.tableNo) !== currentMax) {
+    throw new Error(`Only the highest table (tableNo ${currentMax}) can be removed`);
+  }
+
+  const notRemovable =
+    String(table.status || "available") !== "available" ||
+    Boolean(table.currentUser) ||
+    Boolean(table.waiterRequested) ||
+    Boolean(table.allergyAlert);
+
+  if (notRemovable) {
+    throw new Error(
+      `Table ${table.tableNo} cannot be removed (must be available with no active session)`
+    );
+  }
+
+  await Table.deleteOne({ _id: table._id });
+
+  const max = await Table.findOne().sort({ tableNo: -1 }).select({ tableNo: 1 });
+  return {
+    message: `Table ${table.tableNo} removed`,
+    removedId: String(id),
+    count: max?.tableNo ? Number(max.tableNo) : 0
+  };
+};
+
 exports.getNotifications = async () => {
   const [newOrders, mealCompleted, waiterRequests] = await Promise.all([
     Order.countDocuments({ status: "created" }),

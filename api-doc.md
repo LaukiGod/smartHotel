@@ -291,3 +291,53 @@ All requests and responses use **JSON** format.
   }
 ]
 ```
+
+---
+
+### 7. Get Table Count (Admin)
+
+**Endpoint:** `GET /api/restaurant/tables/count`
+**Description:** Returns the current max table number (the “table count” used by this backend).
+
+**Response:**
+
+```json
+{
+  "count": 12
+}
+```
+
+---
+
+### 8. Increase Table Count (Admin)
+
+**Endpoint:** `POST /api/restaurant/tables/increase`
+**Description:** Adds exactly **1** new table by creating a `Table` document with the next `tableNo` value. **No request body.**
+
+**Response:**
+
+```json
+{
+  "message": "Added 1 table(s)",
+  "from": 13,
+  "to": 13,
+  "count": 13
+}
+```
+
+---
+
+### 9. Delete Table By Id (Admin)
+
+**Endpoint:** `DELETE /api/restaurant/tables/:id`
+**Description:** Deletes a specific table by Mongo `_id`. To keep table numbers contiguous, you can delete **only the highest table number** (e.g. if max tableNo is 10, only tableNo 10 can be deleted). The table can be removed only if it is `available` and has no active session flags.
+
+**Response:**
+
+```json
+{
+  "message": "Table 13 removed",
+  "removedId": "662fe2d7b3c2c8c8c8c8c8c8",
+  "count": 13
+}
+```

@@ -25,6 +25,11 @@ router.delete("/inventory/:id",  authenticate, authorize("ADMIN"), restaurantCon
 router.get("/tables", restaurantController.getTables);
 router.patch("/tables/:tableNo/available", authenticate, authorize("ADMIN", "STAFF"), restaurantController.markTableAvailable);
 
+// tables management — ADMIN only
+router.get("/tables/count", authenticate, authorize("ADMIN"), restaurantController.getTableCount);
+router.post("/tables/increase", authenticate, authorize("ADMIN"), restaurantController.increaseTableCount);
+router.delete("/tables/:id", authenticate, authorize("ADMIN"), restaurantController.deleteTableById);
+
 // manager metrics — ADMIN only
 router.get("/metrics", authenticate, authorize("ADMIN"), restaurantController.getManagerMetrics);
 

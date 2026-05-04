@@ -82,6 +82,33 @@ exports.getTables = async (req, res) => {
   }
 };
 
+exports.getTableCount = async (req, res) => {
+  try {
+    const result = await restaurantService.getTableCount();
+    res.status(200).json(result);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+exports.increaseTableCount = async (req, res) => {
+  try {
+    const result = await restaurantService.increaseTableCount();
+    res.status(200).json(result);
+  } catch (error) {
+    res.status(400).json({ message: error.message });
+  }
+};
+
+exports.deleteTableById = async (req, res) => {
+  try {
+    const result = await restaurantService.deleteTableById(req.params.id);
+    res.status(200).json(result);
+  } catch (error) {
+    res.status(400).json({ message: error.message });
+  }
+};
+
 exports.addDish = async (req, res) => {
   try {
     const { name, price, recipe, ingredients, imageUrl, category } = req.body;
