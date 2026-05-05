@@ -19,6 +19,33 @@ exports.updateOrderStatus = async (req, res) => {
   }
 };
 
+exports.updateLineItemStatus = async (req, res) => {
+  try {
+    const result = await restaurantService.updateLineItemStatus(req.body);
+    res.status(200).json(result);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+exports.createOrder = async (req, res) => {
+  try {
+    const result = await restaurantService.createOrder(req.body);
+    res.status(201).json(result);
+  } catch (error) {
+    res.status(400).json({ message: error.message });
+  }
+};
+
+exports.updateOrderDetails = async (req, res) => {
+  try {
+    const result = await restaurantService.updateOrderDetails(req.body);
+    res.status(200).json(result);
+  } catch (error) {
+    res.status(400).json({ message: error.message });
+  }
+};
+
 exports.getAllergyAlerts = async (req, res) => {
   try {
     const result = await restaurantService.getAllergyAlerts();
@@ -55,15 +82,42 @@ exports.getTables = async (req, res) => {
   }
 };
 
+exports.getTableCount = async (req, res) => {
+  try {
+    const result = await restaurantService.getTableCount();
+    res.status(200).json(result);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+exports.increaseTableCount = async (req, res) => {
+  try {
+    const result = await restaurantService.increaseTableCount();
+    res.status(200).json(result);
+  } catch (error) {
+    res.status(400).json({ message: error.message });
+  }
+};
+
+exports.deleteTableById = async (req, res) => {
+  try {
+    const result = await restaurantService.deleteTableById(req.params.id);
+    res.status(200).json(result);
+  } catch (error) {
+    res.status(400).json({ message: error.message });
+  }
+};
+
 exports.addDish = async (req, res) => {
   try {
-    const { name, price, recipe, ingredients, imageUrl } = req.body;
+    const { name, price, recipe, ingredients, imageUrl, category } = req.body;
 
-    if (!name || !price || !recipe) {
-      return res.status(400).json({ message: 'Name, price, and recipe are required' });
+    if (!name || !price) {
+      return res.status(400).json({ message: 'Name and price are required' });
     }
 
-    const newDish = await restaurantService.addDish({ name, price, recipe, ingredients, imageUrl });
+    const newDish = await restaurantService.addDish({ name, price, recipe, ingredients, imageUrl, category });
 
     return res.status(201).json({
       message: 'Dish added successfully',
@@ -77,8 +131,8 @@ exports.addDish = async (req, res) => {
 
 exports.updateDish = async (req, res) => {
   try {
-    const { dishId, name, price, recipe, ingredients, imageUrl } = req.body;
-    const newDish = await restaurantService.updateDish({ dishId, name, price, recipe, ingredients, imageUrl });
+    const { dishId, name, price, recipe, ingredients, imageUrl, category } = req.body;
+    const newDish = await restaurantService.updateDish({ dishId, name, price, recipe, ingredients, imageUrl, category });
 
     return res.status(200).json({
       message: 'Dish updated successfully',

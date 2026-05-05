@@ -4,7 +4,7 @@ const sharp = require("sharp");
 exports.generateTableQRCode = async (tableNo) => {
   try {
     const serviceUrl = process.env.FRONTEND_URL;
-    const qrText = `${serviceUrl}/table/${tableNo}`;
+    const qrText = `${serviceUrl}/user/table-select/${tableNo}`;
 
     // 1. Generate clean QR
     const qrBuffer = await QRCode.toBuffer(qrText, {

@@ -13,6 +13,18 @@ const orderSchema = new mongoose.Schema({
     }
   ],
 
+  /** One entry per physical item (same dish × qty = multiple rows), with kitchen progress. */
+  lineItems: [
+    {
+      dish: { type: mongoose.Schema.Types.ObjectId, ref: "Dish", required: true },
+      status: {
+        type: String,
+        enum: ["queued", "preparing", "ready", "served"],
+        default: "queued"
+      }
+    }
+  ],
+
   allergiesInput: {
     type: [String],
     default: []
@@ -25,25 +37,8 @@ const orderSchema = new mongoose.Schema({
 
   status: {
     type: String,
-    enum: ["created", "paid", "preparing", "served", "completed"],
+    enum: ["created", "confirmed", "preparing", "served", "completed"],
     default: "created"
-  },
-
-  paymentMethod: {
-    type: String,
-    enum: ["UPI"],
-    default: "UPI"
-  },
-
-  paymentStatus: {
-    type: String,
-    enum: ["pending", "paid"],
-    default: "pending"
-  },
-
-  upiReference: {
-    type: String,
-    default: ""
   },
 
   review: {

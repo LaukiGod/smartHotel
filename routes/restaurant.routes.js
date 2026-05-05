@@ -7,6 +7,9 @@ const { authenticate, authorize } = require("../middlewares/staffAuth.middleware
 // orders — ADMIN + STAFF
 router.get("/orders",       authenticate, authorize("ADMIN", "STAFF"), restaurantController.getOrders);
 router.post("/order-status",authenticate, authorize("ADMIN", "STAFF"), restaurantController.updateOrderStatus);
+router.post("/line-item-status", authenticate, authorize("ADMIN", "STAFF"), restaurantController.updateLineItemStatus);
+router.post("/create-order",authenticate, authorize("ADMIN", "STAFF"), restaurantController.createOrder);
+router.put("/update-order", authenticate, authorize("ADMIN", "STAFF"), restaurantController.updateOrderDetails);
 router.get("/notifications",authenticate, authorize("ADMIN", "STAFF"), restaurantController.getNotifications);
 
 // allergy alerts — ADMIN + STAFF
@@ -21,6 +24,11 @@ router.delete("/inventory/:id",  authenticate, authorize("ADMIN"), restaurantCon
 // tables — public (QR scan needs this)
 router.get("/tables", restaurantController.getTables);
 router.patch("/tables/:tableNo/available", authenticate, authorize("ADMIN", "STAFF"), restaurantController.markTableAvailable);
+
+// tables management — ADMIN only
+router.get("/tables/count", authenticate, authorize("ADMIN"), restaurantController.getTableCount);
+router.post("/tables/increase", authenticate, authorize("ADMIN"), restaurantController.increaseTableCount);
+router.delete("/tables/:id", authenticate, authorize("ADMIN"), restaurantController.deleteTableById);
 
 // manager metrics — ADMIN only
 router.get("/metrics", authenticate, authorize("ADMIN"), restaurantController.getManagerMetrics);
