@@ -58,7 +58,7 @@ const resolveDishIds = async (rawDishes) => {
   if (numericCandidates.length) or.push({ dishId: { $in: numericCandidates } });
   if (!or.length) throw new Error("One or more dishes not found");
 
-  const dishDocs = await Dish.find({ $or: or });
+  const dishDocs = await Dish.find({ $or: or, isAvailable: { $ne: false } });
   const lookup = new Map();
   for (const dish of dishDocs) {
     lookup.set(String(dish._id), dish);
@@ -523,7 +523,11 @@ exports.getManagerMetrics = async () => {
   };
 };
 
-exports.addDish = async ({ name, price, recipe, ingredients, imageUrl, category }) => {
+exports.getAllDishes = async () => {
+  return Dish.find().sort({ createdAt: -1 });
+};
+
+exports.addDish = async ({ name, price, recipe, ingredients, imageUrl, category, isAvailable }) => {
   if (!name || !price) {
     throw new Error("Dish name and price are required");
   }
@@ -559,7 +563,8 @@ exports.addDish = async ({ name, price, recipe, ingredients, imageUrl, category 
     price,
     recipe,
     ingredients,
-    imageUrl
+    imageUrl,
+    isAvailable: isAvailable === undefined ? true : Boolean(isAvailable)
   });
 
   await dish.save();
@@ -620,7 +625,7 @@ exports.updateInventoryItem = async (id, data) => {
   return { message: "Inventory item updated successfully", item };
 };
 
-exports.updateDish = async ({ dishId, name, price, recipe, ingredients, imageUrl, category }) => {
+exports.updateDish = async ({ dishId, name, price, recipe, ingredients, imageUrl, category, isAvailable }) => {
   if (!dishId) {
     throw new Error("dishId is required");
   }
@@ -644,6 +649,9 @@ exports.updateDish = async ({ dishId, name, price, recipe, ingredients, imageUrl
       throw new Error("ingredients must be an array of strings");
     }
     updates.ingredients = ingredients;
+  }
+  if (isAvailable !== undefined) {
+    updates.isAvailable = Boolean(isAvailable);
   }
 
   if (!Object.keys(updates).length) {

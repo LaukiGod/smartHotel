@@ -34,6 +34,7 @@ router.delete("/tables/:id", authenticate, authorize("ADMIN"), restaurantControl
 router.get("/metrics", authenticate, authorize("ADMIN"), restaurantController.getManagerMetrics);
 
 // dishes — ADMIN only
+router.get("/menu",         authenticate, authorize("ADMIN", "STAFF"), restaurantController.getAllDishes);
 router.post("/add-dish",    authenticate, authorize("ADMIN"), restaurantController.addDish);
 router.put("/update-dish",  authenticate, authorize("ADMIN"), restaurantController.updateDish);
 router.delete("/dish/:id",  authenticate, authorize("ADMIN"), restaurantController.deleteDish);

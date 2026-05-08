@@ -111,13 +111,13 @@ exports.deleteTableById = async (req, res) => {
 
 exports.addDish = async (req, res) => {
   try {
-    const { name, price, recipe, ingredients, imageUrl, category } = req.body;
+    const { name, price, recipe, ingredients, imageUrl, category, isAvailable } = req.body;
 
     if (!name || !price) {
       return res.status(400).json({ message: 'Name and price are required' });
     }
 
-    const newDish = await restaurantService.addDish({ name, price, recipe, ingredients, imageUrl, category });
+    const newDish = await restaurantService.addDish({ name, price, recipe, ingredients, imageUrl, category, isAvailable });
 
     return res.status(201).json({
       message: 'Dish added successfully',
@@ -129,10 +129,19 @@ exports.addDish = async (req, res) => {
   }
 };
 
+exports.getAllDishes = async (req, res) => {
+  try {
+    const dishes = await restaurantService.getAllDishes();
+    res.status(200).json(dishes);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
 exports.updateDish = async (req, res) => {
   try {
-    const { dishId, name, price, recipe, ingredients, imageUrl, category } = req.body;
-    const newDish = await restaurantService.updateDish({ dishId, name, price, recipe, ingredients, imageUrl, category });
+    const { dishId, name, price, recipe, ingredients, imageUrl, category, isAvailable } = req.body;
+    const newDish = await restaurantService.updateDish({ dishId, name, price, recipe, ingredients, imageUrl, category, isAvailable });
 
     return res.status(200).json({
       message: 'Dish updated successfully',

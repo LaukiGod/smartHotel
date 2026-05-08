@@ -133,7 +133,7 @@ exports.setAllergies = async (data) => {
 };
 
 exports.getMenu = async () => {
-  const dishes = await Dish.find();
+  const dishes = await Dish.find().sort({ category: 1, name: 1 });
   return dishes;
 };
 
