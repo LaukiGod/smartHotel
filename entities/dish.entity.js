@@ -37,6 +37,11 @@ const dishSchema = new mongoose.Schema({
     type: String,
   },
 
+  isAvailable: {
+    type: Boolean,
+    default: true
+  },
+
   createdAt: {
     type: Date,
     default: Date.now
