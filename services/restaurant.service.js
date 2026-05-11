@@ -7,7 +7,7 @@ const { checkAllergyRisk } = require("../utils/allergyChecker");
 const mongoose = require("mongoose");
 
 const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-const ORDER_STATUSES = ["created", "confirmed", "preparing", "served", "completed"];
+const ORDER_STATUSES = ["created", "confirmed", "preparing", "served", "completed", "cancelled"];
 const isHttpUrl = (value) => {
   if (!value) return false;
   try {
@@ -232,7 +232,7 @@ exports.updateOrderDetails = async (data) => {
   };
 };
 
-const LINE_ITEM_STATUSES = ["queued", "preparing", "ready", "served"];
+const LINE_ITEM_STATUSES = ["queued", "preparing", "ready", "served", "cancelled"];
 
 exports.updateLineItemStatus = async (data) => {
   const { orderId, lineIndex, status } = data || {};
@@ -262,6 +262,7 @@ exports.updateLineItemStatus = async (data) => {
   await order.save();
 
   const populated = await Order.findById(orderId).populate("dishes").populate("lineItems.dish");
+    if (status)
   return { message: "Line item updated", order: populated };
 };
 

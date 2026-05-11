@@ -19,7 +19,7 @@ const orderSchema = new mongoose.Schema({
       dish: { type: mongoose.Schema.Types.ObjectId, ref: "Dish", required: true },
       status: {
         type: String,
-        enum: ["queued", "preparing", "ready", "served"],
+        enum: ["queued", "preparing", "ready", "served", "cancelled"],
         default: "queued"
       }
     }
@@ -37,7 +37,7 @@ const orderSchema = new mongoose.Schema({
 
   status: {
     type: String,
-    enum: ["created", "confirmed", "preparing", "served", "completed"],
+    enum: ["created", "confirmed", "preparing", "served", "completed", "cancelled"],
     default: "created"
   },
 
