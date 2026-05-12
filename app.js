@@ -9,7 +9,7 @@ require("./config/passport");
 const app = express();
 
 // CORS — must be before all routes
-const allowedOrigins = [process.env.FRONTEND_URL, "http://127.0.0.1:5173", "http://localhost0:5173"].filter(Boolean);
+const allowedOrigins = [process.env.FRONTEND_URL, "http://127.0.0.1:5173", "http://localhost0:5173", "https://restaurant-management-nepal.vercel.app"].filter(Boolean);
 app.use(cors({
   origin: allowedOrigins,
   credentials: true,
