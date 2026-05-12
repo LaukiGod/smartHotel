@@ -1,8 +1,9 @@
 const mongoose = require("mongoose");
 
 const connectDB = async () => {
+  const mongoURI = process.env.MONGO_URI_LOCAL || "mongodb://127.0.0.1:27017/hotel-management";
   try {
-    await mongoose.connect("mongodb://127.0.0.1:27017/hotel-management");
+    await mongoose.connect(mongoURI);
 
     console.log("MongoDB Connected");
   } catch (error) {
