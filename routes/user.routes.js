@@ -1,24 +1,31 @@
 const express = require("express");
-const router = express.Router();
-
+// mergeParams keeps :slug readable after mounting under /api/r/:slug/user
+const router = express.Router({ mergeParams: true });
 const userController = require("../controllers/user.controller");
+const { resolveTenant } = require("../middlewares/tenant.middleware");
 
-// login using table number
+// Public customer surface — unauthenticated, but always pinned to one restaurant.
+router.use(resolveTenant);
+
+// Restaurant identity for the kiosk/customer shell
+router.get("/restaurant", userController.getRestaurantInfo);
+
+// login and start a table session
 router.post("/login-table", userController.loginTable);
 
-// browse-first: GET table → open menu without guest details (details at order confirm). Optional ?redirect=1
+// quick QR entry
 router.get("/table-select/:tableNo", userController.selectTableQuickBrowse);
 
-// set allergies
+// set allergies for the seated user
 router.post("/set-allergies", userController.setAllergies);
 
-// get menu
+// browse the menu
 router.get("/menu", userController.getMenu);
 
-// seated customer identity for this table (for session refresh / validation)
+// read the current seating session
 router.get("/table-session/:tableNo", userController.getTableSession);
 
-// order food
+// ordering
 router.post("/order", userController.orderFood);
 router.post("/confirm-order", userController.confirmOrder);
 router.get("/orders/:tableNo", userController.getTableOrders);
@@ -26,7 +33,7 @@ router.post("/call-waiter", userController.callWaiter);
 router.post("/meal-complete", userController.completeMeal);
 router.post("/review", userController.submitReview);
 
-// clear table when leaving
+// end the session
 router.post("/clear-table", userController.clearTable);
 
 module.exports = router;

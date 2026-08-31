@@ -1,12 +1,15 @@
-const User = require("../entities/user.entity");
-const Table = require("../entities/table.entity");
-const Order = require("../entities/order.entity");
-const Dish = require("../entities/dish.entity");
+/**
+ * Public customer / kiosk operations for a single restaurant.
+ *
+ * Like the staff service, every export takes the tenant-scoped `db` bundle. These
+ * endpoints are unauthenticated, so scoping is the only thing standing between a
+ * guest at restaurant A and restaurant B's tables — it is never optional here.
+ */
 const { checkAllergyRisk } = require("../utils/allergyChecker");
 const { isTableValid } = require("../utils/helpers");
 const mongoose = require("mongoose");
 
-const resolveDishIds = async (rawDishes) => {
+const resolveDishIds = async (db, rawDishes) => {
   const dishList = Array.isArray(rawDishes) ? rawDishes : [];
   const normalizedTokens = dishList
     .map((v) => (v === null || v === undefined ? "" : String(v).trim()))
@@ -29,7 +32,7 @@ const resolveDishIds = async (rawDishes) => {
   if (numericCandidates.length) or.push({ dishId: { $in: numericCandidates } });
   if (!or.length) throw new Error("One or more dishes not found");
 
-  const dishDocs = await Dish.find({ $or: or });
+  const dishDocs = await db.Dish.find({ $or: or });
   const lookup = new Map();
   for (const dish of dishDocs) {
     lookup.set(String(dish._id), dish);
@@ -47,10 +50,10 @@ function lineItemsFromDishIds(resolvedDishIds) {
   return resolvedDishIds.map((dishId) => ({ dish: dishId, status: "queued" }));
 }
 
-exports.loginTable = async (data) => {
+exports.loginTable = async (db, data) => {
   const { tableNo, name, phoneNo, allowExistingSession } = data;
 
-  if (tableNo === undefined || !isTableValid(tableNo)) {
+  if (tableNo === undefined || !(await isTableValid(db.Table, tableNo))) {
     throw new Error("Invalid table number");
   }
   if (!name) throw new Error("Name is required");
@@ -59,13 +62,8 @@ exports.loginTable = async (data) => {
     throw new Error("Phone number must be exactly 10 digits");
   }
 
-  let table = await Table.findOne({ tableNo });
-  if (!table) {
-    table = await Table.create({ tableNo });
-  }
-
   // Claim the table atomically — only succeeds if currently free
-  const claimedTable = await Table.findOneAndUpdate(
+  const claimedTable = await db.Table.findOneAndUpdate(
     { tableNo, status: "available" },
     { status: "occupied", occupiedSince: new Date(), lastStatusChangedAt: new Date() },
     { new: true }
@@ -75,7 +73,7 @@ exports.loginTable = async (data) => {
     // Edit-details flow: allow updating current session details on the same occupied table
     // instead of trying to claim the table again.
     if (allowExistingSession) {
-      const occupiedTable = await Table.findOne({ tableNo }).populate("currentUser");
+      const occupiedTable = await db.Table.findOne({ tableNo }).populate("currentUser");
       if (!occupiedTable) throw new Error("Table not found");
       if (occupiedTable.status !== "occupied" || !occupiedTable.currentUser) {
         throw new Error("Table not available");
@@ -92,7 +90,7 @@ exports.loginTable = async (data) => {
   }
 
   // Create user only after table is secured — nothing to roll back on failure
-  const user = await User.create({ tableNo, name, phoneNo: phone, role: "user" });
+  const user = await db.User.create({ tableNo, name, phoneNo: phone, role: "user" });
 
   // Attach user to table
   claimedTable.currentUser = user._id;
@@ -101,14 +99,14 @@ exports.loginTable = async (data) => {
   return { message: "Table session started", user };
 };
 
-exports.setAllergies = async (data) => {
+exports.setAllergies = async (db, data) => {
   const { tableNo, allergies } = data;
 
   if (!tableNo) throw new Error("tableNo is required");
   if (!Array.isArray(allergies)) throw new Error("allergies must be an array");
 
   // Find the table and get its currentUser
-  const currentTable = await Table.findOneAndUpdate(
+  const currentTable = await db.Table.findOneAndUpdate(
     { tableNo },
     { allergyAlert: allergies.length > 0 },
     { new: true, projection: { currentUser: 1 } }
@@ -118,7 +116,7 @@ exports.setAllergies = async (data) => {
   if (!currentTable.currentUser) throw new Error("No user assigned to this table");
 
   // Update the user's allergies
-  const updatedUser = await User.findByIdAndUpdate(
+  const updatedUser = await db.User.findByIdAndUpdate(
     currentTable.currentUser,
     { allergies },
     { new: true }
@@ -132,17 +130,17 @@ exports.setAllergies = async (data) => {
   };
 };
 
-exports.getMenu = async () => {
-  const dishes = await Dish.find().sort({ category: 1, name: 1 });
+exports.getMenu = async (db) => {
+  const dishes = await db.Dish.find().sort({ category: 1, name: 1 });
   return dishes;
 };
 
-exports.orderFood = async (data) => {
+exports.orderFood = async (db, data) => {
   const { tableNo, dishes } = data;
 
-  const { resolvedDishIds, dishDocs } = await resolveDishIds(dishes);
+  const { resolvedDishIds, dishDocs } = await resolveDishIds(db, dishes);
 
-  const table = await Table.findOne({ tableNo }).populate("currentUser");
+  const table = await db.Table.findOne({ tableNo }).populate("currentUser");
   if (!table) throw new Error(`Table ${tableNo} not found`);
 
   if (table.status !== "occupied") {
@@ -161,7 +159,7 @@ exports.orderFood = async (data) => {
   // Re-use the latest open ticket for this table so "edit details → menu → checkout again"
   // updates the same admin order instead of creating a duplicate (until meal is served/completed).
   const OPEN_ORDER_STATUSES = ["created", "confirmed", "preparing"];
-  const existing = await Order.findOne({
+  const existing = await db.Order.findOne({
     tableNo,
     status: { $in: OPEN_ORDER_STATUSES },
   }).sort({ createdAt: -1 });
@@ -180,7 +178,7 @@ exports.orderFood = async (data) => {
 
     // Recompute allergy risk for the full (combined) order.
     const uniqueDishIds = Array.from(new Set(nextDishes.map((d) => String(d)))).map((id) => new mongoose.Types.ObjectId(id));
-    const fullDishDocs = await Dish.find({ _id: { $in: uniqueDishIds } });
+    const fullDishDocs = await db.Dish.find({ _id: { $in: uniqueDishIds } });
     const fullIngredientNames = fullDishDocs.flatMap((dish) => dish.ingredients || []);
     const fullAllergyResult = await checkAllergyRisk(allergiesInput, fullIngredientNames);
 
@@ -189,7 +187,7 @@ exports.orderFood = async (data) => {
     await order.save();
     updatedExisting = true;
   } else {
-    order = await Order.create({
+    order = await db.Order.create({
       tableNo,
       dishes: resolvedDishIds,
       lineItems: lineItemsFromDishIds(resolvedDishIds),
@@ -199,13 +197,13 @@ exports.orderFood = async (data) => {
     });
   }
 
-  await Table.findOneAndUpdate(
+  await db.Table.findOneAndUpdate(
     { tableNo },
     { allergyAlert: Boolean(order.allergyAlert) },
     { new: true }
   );
 
-  const populated = await Order.findById(order._id).populate("dishes").populate("lineItems.dish");
+  const populated = await db.Order.findById(order._id).populate("dishes").populate("lineItems.dish");
 
   return {
     message: updatedExisting ? "Items added to existing order" : "Order placed",
@@ -216,11 +214,11 @@ exports.orderFood = async (data) => {
   };
 };
 
-exports.confirmOrder = async (data) => {
+exports.confirmOrder = async (db, data) => {
   const { orderId } = data;
   if (!orderId) throw new Error("orderId is required");
 
-  const order = await Order.findByIdAndUpdate(
+  const order = await db.Order.findByIdAndUpdate(
     orderId,
     { status: "confirmed" },
     { new: true }
@@ -230,15 +228,15 @@ exports.confirmOrder = async (data) => {
   return { message: "Order confirmed", order };
 };
 
-exports.getTableOrders = async (tableNo) => {
-  if (!isTableValid(tableNo)) throw new Error("Invalid table number");
-  const table = await Table.findOne({ tableNo }).select({ occupiedSince: 1 });
+exports.getTableOrders = async (db, tableNo) => {
+  if (!(await isTableValid(db.Table, tableNo))) throw new Error("Invalid table number");
+  const table = await db.Table.findOne({ tableNo }, { occupiedSince: 1 });
   const query = { tableNo };
   // Restrict history to current seating session so old/completed sessions are not shown in tracking.
   if (table?.occupiedSince) {
     query.createdAt = { $gte: table.occupiedSince };
   }
-  const orders = await Order.find(query)
+  const orders = await db.Order.find(query)
     .populate("dishes")
     .populate("lineItems.dish")
     .sort({ createdAt: -1 });
@@ -248,12 +246,16 @@ exports.getTableOrders = async (tableNo) => {
 /**
  * GET table-select (quick entry): claim table immediately and start a lightweight user session.
  * Useful for QR-based direct booking where scanning should reserve/occupy the table in staff panel.
+ *
+ * `entryPath` is tenant-RELATIVE (no /r/:slug prefix) — the frontend's own
+ * tenant-aware navigate() adds that prefix itself. A caller building an absolute
+ * redirect URL from this (see the controller) must add /r/:slug on its own.
  */
-exports.selectTableQuickBrowse = async (tableNo) => {
+exports.selectTableQuickBrowse = async (db, tableNo) => {
   const n = Number(tableNo);
-  if (!isTableValid(n)) throw new Error("Invalid table number");
-  let table = await Table.findOne({ tableNo: n }).populate("currentUser");
-  if (!table) table = await Table.create({ tableNo: n });
+  if (!(await isTableValid(db.Table, n))) throw new Error("Invalid table number");
+  const table = await db.Table.findOne({ tableNo: n }).populate("currentUser");
+  if (!table) throw new Error("Invalid table number");
 
   // Idempotent behavior: if already occupied with a seated user, keep that active session.
   if (table.status === "occupied" && table.currentUser) {
@@ -271,7 +273,7 @@ exports.selectTableQuickBrowse = async (tableNo) => {
 
   // Claim table atomically.
   // Accept legacy rows where status might be missing/null/empty, and rows marked occupied but without currentUser.
-  const claimed = await Table.findOneAndUpdate(
+  const claimed = await db.Table.findOneAndUpdate(
     {
       tableNo: n,
       $or: [
@@ -288,7 +290,7 @@ exports.selectTableQuickBrowse = async (tableNo) => {
   if (!claimed) throw new Error("Table not available");
 
   // Create a minimal user session so staff panel can see the occupied table with currentUser.
-  const quickUser = await User.create({
+  const quickUser = await db.User.create({
     tableNo: n,
     name: "Quick Guest",
     phoneNo: "",
@@ -311,10 +313,10 @@ exports.selectTableQuickBrowse = async (tableNo) => {
 };
 
 /** Public read for customer SPA: occupied table + seated user identity (matches session after login). */
-exports.getTableSession = async (tableNo) => {
+exports.getTableSession = async (db, tableNo) => {
   const n = Number(tableNo);
-  if (!isTableValid(n)) throw new Error("Invalid table number");
-  const table = await Table.findOne({ tableNo: n }).populate("currentUser");
+  if (!(await isTableValid(db.Table, n))) throw new Error("Invalid table number");
+  const table = await db.Table.findOne({ tableNo: n }).populate("currentUser");
   if (!table) {
     return { valid: false, reason: "not_found" };
   }
@@ -331,10 +333,10 @@ exports.getTableSession = async (tableNo) => {
   };
 };
 
-exports.callWaiter = async (data) => {
+exports.callWaiter = async (db, data) => {
   const { tableNo } = data;
-  if (!isTableValid(tableNo)) throw new Error("Invalid table number");
-  const table = await Table.findOneAndUpdate(
+  if (!(await isTableValid(db.Table, tableNo))) throw new Error("Invalid table number");
+  const table = await db.Table.findOneAndUpdate(
     { tableNo, status: { $in: ["occupied", "cleaning"] } },
     { waiterRequested: true },
     { new: true }
@@ -343,16 +345,16 @@ exports.callWaiter = async (data) => {
   return { message: "Waiter has been notified", tableNo };
 };
 
-exports.completeMeal = async (data) => {
+exports.completeMeal = async (db, data) => {
   const { tableNo } = data;
-  if (!isTableValid(tableNo)) throw new Error("Invalid table number");
+  if (!(await isTableValid(db.Table, tableNo))) throw new Error("Invalid table number");
 
-  const completedOrders = await Order.updateMany(
+  const completedOrders = await db.Order.updateMany(
     { tableNo, status: { $ne: "completed" } },
     { status: "completed" }
   );
 
-  await Table.findOneAndUpdate(
+  await db.Table.findOneAndUpdate(
     { tableNo, status: "occupied" },
     { status: "cleaning", lastStatusChangedAt: new Date(), waiterRequested: false, allergyAlert: false },
     { new: true }
@@ -364,12 +366,12 @@ exports.completeMeal = async (data) => {
   };
 };
 
-exports.submitReview = async (data) => {
+exports.submitReview = async (db, data) => {
   const { orderId, rating, comment } = data;
   if (!orderId) throw new Error("orderId is required");
   if (!rating || Number(rating) < 1 || Number(rating) > 5) throw new Error("rating must be between 1 and 5");
 
-  const order = await Order.findByIdAndUpdate(
+  const order = await db.Order.findByIdAndUpdate(
     orderId,
     { review: { rating: Number(rating), comment: comment || "" } },
     { new: true }
@@ -378,17 +380,17 @@ exports.submitReview = async (data) => {
   return { message: "Thanks for your feedback", orderId: order._id };
 };
 
-exports.clearTable = async (data) => {
+exports.clearTable = async (db, data) => {
   const { tableNo } = data;
 
-  const table = await Table.findOne({ tableNo }).populate("currentUser");
+  const table = await db.Table.findOne({ tableNo }).populate("currentUser");
   if (!table) throw new Error("Table not found");
 
   if (table.currentUser) {
-    await User.findByIdAndDelete(table.currentUser._id);
+    await db.User.findByIdAndDelete(table.currentUser._id);
   }
 
-  const cleared = await Table.findOneAndUpdate(
+  const cleared = await db.Table.findOneAndUpdate(
     { tableNo, status: { $in: ["occupied", "cleaning"] } },
     {
       status: "available",

@@ -1,6 +1,13 @@
 const mongoose = require("mongoose");
 
 const orderSchema = new mongoose.Schema({
+  restaurant: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "Restaurant",
+    required: true,
+    index: true
+  },
+
   tableNo: {
     type: Number,
     required: true
@@ -51,5 +58,11 @@ const orderSchema = new mongoose.Schema({
     default: Date.now
   }
 });
+
+// Dashboard reads "today's orders for this restaurant"; tracking reads
+// "open orders for this table"; both stay index-covered.
+orderSchema.index({ restaurant: 1, createdAt: -1 });
+orderSchema.index({ restaurant: 1, tableNo: 1, status: 1 });
+orderSchema.index({ restaurant: 1, allergyAlert: 1 });
 
 module.exports = mongoose.model("Order", orderSchema);

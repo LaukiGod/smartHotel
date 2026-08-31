@@ -1,10 +1,24 @@
 const QRCode = require("qrcode");
 const sharp = require("sharp");
 
-exports.generateTableQRCode = async (tableNo) => {
+/** Escapes text placed inside the SVG label. */
+const xmlEscape = (value) =>
+  String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+
+/**
+ * @param {{slug: string, name: string}} restaurant tenant the table belongs to
+ * @param {number} tableNo
+ */
+exports.generateTableQRCode = async (restaurant, tableNo) => {
   try {
-    const serviceUrl = process.env.FRONTEND_URL;
-    const qrText = `${serviceUrl}/user/table-select/${tableNo}`;
+    const serviceUrl = String(process.env.FRONTEND_URL || "").replace(/\/+$/, "");
+    // The QR must carry the tenant: the customer app is unauthenticated, so the
+    // slug in the URL is the only thing that says which restaurant this is.
+    const qrText = `${serviceUrl}/r/${restaurant.slug}/user/table-select/${tableNo}`;
 
     // 1. Generate clean QR
     const qrBuffer = await QRCode.toBuffer(qrText, {
@@ -17,20 +31,28 @@ exports.generateTableQRCode = async (tableNo) => {
       },
     });
 
-    // 2. Create SVG label (table number BELOW QR)
-    const labelHeight = 120;
+    // 2. Create SVG label (restaurant + table number BELOW QR)
+    const labelHeight = 160;
 
     const svgLabel = `
       <svg width="500" height="${labelHeight}">
         <rect width="100%" height="100%" fill="white"/>
-        <text x="50%" y="50%" 
-          fill="black" 
-          font-size="60" 
-          font-weight="bold" 
-          text-anchor="middle" 
+        <text x="50%" y="42%"
+          fill="black"
+          font-size="60"
+          font-weight="bold"
+          text-anchor="middle"
           dominant-baseline="middle"
           font-family="Arial, sans-serif">
           Table ${tableNo}
+        </text>
+        <text x="50%" y="78%"
+          fill="#555555"
+          font-size="26"
+          text-anchor="middle"
+          dominant-baseline="middle"
+          font-family="Arial, sans-serif">
+          ${xmlEscape(restaurant.name)}
         </text>
       </svg>
     `;

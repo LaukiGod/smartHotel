@@ -1,9 +1,15 @@
 const mongoose = require("mongoose");
 
 const dishSchema = new mongoose.Schema({
+  restaurant: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "Restaurant",
+    required: true,
+    index: true
+  },
+
   dishId: {
-    type: Number,
-    unique: true
+    type: Number
   },
 
   name: {
@@ -47,5 +53,9 @@ const dishSchema = new mongoose.Schema({
     default: Date.now
   }
 });
+
+// dishId is a per-restaurant counter, not a global one.
+dishSchema.index({ restaurant: 1, dishId: 1 }, { unique: true });
+dishSchema.index({ restaurant: 1, category: 1, name: 1 });
 
 module.exports = mongoose.model("Dish", dishSchema);

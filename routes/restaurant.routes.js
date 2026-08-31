@@ -1,45 +1,53 @@
 const express = require("express");
-const router = express.Router();
-
+// mergeParams keeps :slug readable after mounting under /api/r/:slug/restaurant
+const router = express.Router({ mergeParams: true });
 const restaurantController = require("../controllers/restaurant.controller");
 const { authenticate, authorize } = require("../middlewares/staffAuth.middleware");
+const { resolveTenant, enforceTenantMatch } = require("../middlewares/tenant.middleware");
 
-// orders — ADMIN + STAFF
-router.get("/orders",       authenticate, authorize("ADMIN", "STAFF"), restaurantController.getOrders);
-router.post("/order-status",authenticate, authorize("ADMIN", "STAFF"), restaurantController.updateOrderStatus);
-router.post("/line-item-status", authenticate, authorize("ADMIN", "STAFF"), restaurantController.updateLineItemStatus);
-router.post("/create-order",authenticate, authorize("ADMIN", "STAFF"), restaurantController.createOrder);
-router.put("/update-order", authenticate, authorize("ADMIN", "STAFF"), restaurantController.updateOrderDetails);
-router.get("/notifications",authenticate, authorize("ADMIN", "STAFF"), restaurantController.getNotifications);
+// Resolve the tenant first, then require a token issued FOR THAT TENANT.
+router.use(resolveTenant);
 
-// allergy alerts — ADMIN + STAFF
-router.get("/alerts",       authenticate, authorize("ADMIN", "STAFF"), restaurantController.getAllergyAlerts);
+/** authenticate -> confirm the token's restaurant matches the URL -> check role. */
+const staff = [authenticate, enforceTenantMatch, authorize("ADMIN", "STAFF")];
+const adminOnly = [authenticate, enforceTenantMatch, authorize("ADMIN")];
 
-// inventory — ADMIN only
-router.post("/add-inventory",    authenticate, authorize("ADMIN"), restaurantController.addItemsToInventory);
-router.get("/inventory",         authenticate, authorize("ADMIN", "STAFF"), restaurantController.getInventoryItems);
-router.put("/inventory/:id",     authenticate, authorize("ADMIN"), restaurantController.updateInventoryItem);
-router.delete("/inventory/:id",  authenticate, authorize("ADMIN"), restaurantController.deleteInventoryItem);
+// ── Orders ────────────────────────────────────────────────────────────────────
+router.get("/orders",            staff, restaurantController.getOrders);
+router.post("/order-status",     staff, restaurantController.updateOrderStatus);
+router.post("/line-item-status", staff, restaurantController.updateLineItemStatus);
+router.post("/create-order",     staff, restaurantController.createOrder);
+router.put("/update-order",      staff, restaurantController.updateOrderDetails);
+router.get("/notifications",     staff, restaurantController.getNotifications);
 
-// tables — public (QR scan needs this)
+// ── Allergy alerts ────────────────────────────────────────────────────────────
+router.get("/alerts",            staff, restaurantController.getAllergyAlerts);
+
+// ── Inventory ─────────────────────────────────────────────────────────────────
+router.post("/add-inventory",    adminOnly, restaurantController.addItemsToInventory);
+router.get("/inventory",         staff,     restaurantController.getInventoryItems);
+router.put("/inventory/:id",     adminOnly, restaurantController.updateInventoryItem);
+router.delete("/inventory/:id",  adminOnly, restaurantController.deleteInventoryItem);
+
+// ── Tables ────────────────────────────────────────────────────────────────────
+// Table list is readable without a token (the kiosk uses it), but only ever for
+// the restaurant named in the URL.
 router.get("/tables", restaurantController.getTables);
-router.patch("/tables/:tableNo/available", authenticate, authorize("ADMIN", "STAFF"), restaurantController.markTableAvailable);
+router.patch("/tables/:tableNo/available", staff, restaurantController.markTableAvailable);
+router.get("/tables/count",     adminOnly, restaurantController.getTableCount);
+router.post("/tables/increase", adminOnly, restaurantController.increaseTableCount);
+router.delete("/tables/:id",    adminOnly, restaurantController.deleteTableById);
 
-// tables management — ADMIN only
-router.get("/tables/count", authenticate, authorize("ADMIN"), restaurantController.getTableCount);
-router.post("/tables/increase", authenticate, authorize("ADMIN"), restaurantController.increaseTableCount);
-router.delete("/tables/:id", authenticate, authorize("ADMIN"), restaurantController.deleteTableById);
+// ── Metrics ───────────────────────────────────────────────────────────────────
+router.get("/metrics", adminOnly, restaurantController.getManagerMetrics);
 
-// manager metrics — ADMIN only
-router.get("/metrics", authenticate, authorize("ADMIN"), restaurantController.getManagerMetrics);
+// ── Menu ──────────────────────────────────────────────────────────────────────
+router.get("/menu",        staff,     restaurantController.getAllDishes);
+router.post("/add-dish",   adminOnly, restaurantController.addDish);
+router.put("/update-dish", adminOnly, restaurantController.updateDish);
+router.delete("/dish/:id", adminOnly, restaurantController.deleteDish);
 
-// dishes — ADMIN only
-router.get("/menu",         authenticate, authorize("ADMIN", "STAFF"), restaurantController.getAllDishes);
-router.post("/add-dish",    authenticate, authorize("ADMIN"), restaurantController.addDish);
-router.put("/update-dish",  authenticate, authorize("ADMIN"), restaurantController.updateDish);
-router.delete("/dish/:id",  authenticate, authorize("ADMIN"), restaurantController.deleteDish);
-
-// create qr code for table
-router.get("/tables/:tableNo/qrcode", authenticate, authorize("ADMIN", "STAFF"), restaurantController.generateTableQRCode);
+// ── QR ────────────────────────────────────────────────────────────────────────
+router.get("/tables/:tableNo/qrcode", staff, restaurantController.generateTableQRCode);
 
 module.exports = router;

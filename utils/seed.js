@@ -1,39 +1,73 @@
-// utils/seed.js — runs on `npm install` (postinstall) and `npm run postinstall` / `npm run seed`
+// utils/seed.js — runs on `npm install` (postinstall) and `npm run seed`
+//
+// In multi-tenant mode there is nothing global left to seed except the platform
+// itself. Tables, dishes and staff now belong to a restaurant, and are created
+// by `provisionRestaurant` when that restaurant is added from the platform
+// console (or by SEED_RESTAURANT_* below, for a one-command dev setup).
 const path = require('path');
 const mongoose = require('mongoose');
 require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 
-const Table = require('../entities/table.entity');
 const Staff = require('../entities/staff.entity');
-const Dish = require('../entities/dish.entity');
-
-const dishes = require(path.join(__dirname, 'dishes.json'));
+const Restaurant = require('../entities/restaurant.entity');
+const { provisionRestaurant } = require('./tenantProvision');
 
 const uri = process.env.MONGO_URI_LOCAL || process.env.MONGO_URI;
 
-async function seedDishes() {
-  const existingDishes = await Dish.countDocuments();
-  if (existingDishes > 0) {
-    console.log('ℹ️ Dishes already exist, skipping seed');
-    return 0;
+async function seedPlatformAdmin() {
+  const email = (process.env.PLATFORM_ADMIN_EMAIL || '').toLowerCase().trim();
+  const name = process.env.PLATFORM_ADMIN_NAME || 'Platform Admin';
+
+  if (!email) {
+    console.warn('⚠️  PLATFORM_ADMIN_EMAIL not set — skipping platform admin seed.');
+    console.warn('    Without it nobody can sign in to /platform to create restaurants.');
+    return null;
   }
-  if (!Array.isArray(dishes) || dishes.length === 0) {
-    console.warn('⚠️ utils/dishes.json is empty or invalid; no dishes to insert');
-    return 0;
+
+  const existing = await Staff.findOne({ restaurant: null, email });
+  if (existing) {
+    console.log(`ℹ️  Platform admin ${email} already exists`);
+    return existing;
   }
-  await Dish.insertMany(dishes);
-  console.log(`✅ ${dishes.length} dishes seeded from utils/dishes.json`);
-  return dishes.length;
+
+  const admin = await Staff.create({ name, email, role: 'SUPER_ADMIN', restaurant: null });
+  console.log(`✅ Platform admin seeded: ${email}`);
+  return admin;
 }
 
-const seedTables = async () => {
+async function seedFirstRestaurant() {
+  const name = process.env.SEED_RESTAURANT_NAME;
+  if (!name) {
+    console.log('ℹ️  SEED_RESTAURANT_NAME not set — no demo restaurant created.');
+    return null;
+  }
+
+  const slug = process.env.SEED_RESTAURANT_SLUG || undefined;
+  if (slug && (await Restaurant.exists({ slug }))) {
+    console.log(`ℹ️  Restaurant "${slug}" already exists, skipping`);
+    return null;
+  }
+
+  const { restaurant, seeded } = await provisionRestaurant({
+    name,
+    slug,
+    adminName: process.env.SEED_ADMIN_NAME,
+    adminEmail: process.env.SEED_ADMIN_EMAIL,
+    tableCount: Number(process.env.SEED_RESTAURANT_TABLES || 10),
+  });
+
+  console.log(`✅ Restaurant "${restaurant.name}" created at /r/${restaurant.slug}`);
+  console.log(`   tables: ${seeded.tables}  dishes: ${seeded.dishes}  admin: ${seeded.admin || '(none)'}`);
+  return restaurant;
+}
+
+const seed = async () => {
   if (process.env.SKIP_SEED === '1' || process.env.SKIP_SEED === 'true') {
-    console.log('⏭️ [PostInstall] SKIP_SEED is set; skipping database seeding.');
+    console.log('⏭️  [PostInstall] SKIP_SEED is set; skipping database seeding.');
     process.exit(0);
   }
 
   console.log('\n ====== npm postinstall / seed ====== \n');
-  console.log('🔄 [PostInstall] Starting seeding (tables, staff, dishes)…');
   if (!uri) {
     console.error('❌ Set MONGO_URI_LOCAL or MONGO_URI in .env for seeding to run.');
     process.exit(1);
@@ -48,54 +82,20 @@ const seedTables = async () => {
   }
 
   try {
-    // --- Seed Tables ---
-    const existingTables = await Table.countDocuments();
-    if (existingTables === 0) {
-      const tables = [];
-      for (let i = 1; i <= 10; i++) {
-        tables.push({ tableNo: i, status: 'available' });
-      }
-      await Table.insertMany(tables);
-      console.log('✅ 10 tables seeded');
-    } else {
-      console.log('ℹ️ Tables already exist, skipping seed');
-    }
+    await seedPlatformAdmin();
+    await seedFirstRestaurant();
 
-    // --- Seed Admin Staff from .env ---
-    const adminEmail = process.env.SEED_ADMIN_EMAIL;
-    const adminName = process.env.SEED_ADMIN_NAME;
-    const adminRole = process.env.SEED_ADMIN_ROLE;
-
-    if (!adminEmail || !adminName || !adminRole) {
-      console.warn('⚠️ Admin seed env variables missing, skipping staff seed');
-    } else {
-      const existingStaff = await Staff.findOne({ email: adminEmail });
-      if (!existingStaff) {
-        await Staff.create({
-          name: adminName,
-          email: adminEmail,
-          role: adminRole,
-        });
-        console.log(`✅ Admin staff ${adminName} seeded`);
-      } else {
-        console.log('ℹ️ Admin staff already exists, skipping seed');
-      }
-    }
-
-    // --- Seed Dishes from utils/dishes.json (postinstall) ---
-    await seedDishes();
-
-    console.log('🎉 [PostInstall] Seeding completed successfully!');
+    console.log('🎉 Seeding completed successfully!');
     await mongoose.disconnect();
     process.exit(0);
   } catch (err) {
     console.error('❌ Seeding failed:', err.message);
     if (err.stack) console.error(err.stack);
     console.log(
-      '\n--------------------------------------------\n [PostInstall Failed] fix the error, then run: npm run postinstall\n   (or: npm run seed)\n',
+      '\n--------------------------------------------\n [Seed Failed] fix the error, then run: npm run seed\n',
     );
     process.exit(1);
   }
 };
 
-seedTables();
+seed();

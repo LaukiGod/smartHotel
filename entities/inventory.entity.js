@@ -3,6 +3,13 @@
 const mongoose = require("mongoose");
 
 const inventorySchema = new mongoose.Schema({
+  restaurant: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "Restaurant",
+    required: true,
+    index: true
+  },
+
   name: {
     type: String,
     required: true,
@@ -42,5 +49,9 @@ const inventorySchema = new mongoose.Schema({
     default: Date.now
   }
 });
+
+// Name uniqueness is enforced case-insensitively in the service; this index
+// only keeps per-restaurant lookups fast.
+inventorySchema.index({ restaurant: 1, name: 1 });
 
 module.exports = mongoose.model("Inventory", inventorySchema);

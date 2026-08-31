@@ -1,6 +1,13 @@
 const mongoose = require("mongoose");
 
 const userSchema = new mongoose.Schema({
+  restaurant: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "Restaurant",
+    required: true,
+    index: true
+  },
+
   tableNo: {
     type: Number,
     required: true
@@ -34,5 +41,7 @@ const userSchema = new mongoose.Schema({
     default: Date.now
   }
 });
+
+userSchema.index({ restaurant: 1, tableNo: 1 });
 
 module.exports = mongoose.model("User", userSchema);

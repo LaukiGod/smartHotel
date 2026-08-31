@@ -1,10 +1,16 @@
 const mongoose = require("mongoose");
 
 const tableSchema = new mongoose.Schema({
+  restaurant: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "Restaurant",
+    required: true,
+    index: true
+  },
+
   tableNo: {
     type: Number,
-    required: true,
-    unique: true
+    required: true
   },
 
   status: {
@@ -38,5 +44,8 @@ const tableSchema = new mongoose.Schema({
     default: Date.now
   }
 });
+
+// Table numbers restart at 1 for every restaurant.
+tableSchema.index({ restaurant: 1, tableNo: 1 }, { unique: true });
 
 module.exports = mongoose.model("Table", tableSchema);

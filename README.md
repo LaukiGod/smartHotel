@@ -1,7 +1,9 @@
 # Hotel Management System — Backend
 
-QR-based in-restaurant ordering and management system.  
-Customers order via QR scan. Staff manage orders. Admin manages everything.
+Multi-tenant, QR-based in-restaurant ordering and management.
+Many restaurants run on one deployment, each with its own data, staff, menu and tables.
+Customers order via QR scan. Staff manage orders. Admin manages their restaurant.
+A platform administrator manages the restaurants themselves.
 
 ---
 
@@ -9,24 +11,61 @@ Customers order via QR scan. Staff manage orders. Admin manages everything.
 
 - **Runtime:** Node.js
 - **Framework:** Express.js v5
-- **Database:** MongoDB + Mongoose
+- **Database:** MongoDB + Mongoose (shared database, tenant-scoped documents)
 - **Auth:** Google OAuth2 (Passport.js) + JWT
 - **AI:** Google Generative AI (allergy checker)
+
+---
+
+## How tenancy works
+
+Every restaurant is a `Restaurant` document with a URL-safe `slug`. Every other
+document — order, table, dish, inventory item, guest, staff member — carries a
+required `restaurant` reference.
+
+**1. The slug is the boundary.** All tenant routes live under `/api/r/:slug/...`.
+`resolveTenant` turns that slug into `req.restaurant` plus `req.db`, a scoped
+model bundle.
+
+**2. Services cannot escape the scope.** No service imports a Mongoose model
+directly; they only get `req.db`, where every read is filtered by `restaurant`
+and every write stamped with it. Critically, `findById(id)` is rewritten to
+`findOne({ _id: id, restaurant })` — so an id guessed or leaked from another
+restaurant returns 404 rather than data.
+
+```js
+// services never do this any more:
+await Order.findById(orderId)                    // global — could be any tenant
+
+// they do this:
+await db.Order.findById(orderId)                 // -> { _id, restaurant } — scoped
+```
+
+**3. Tokens are pinned to a tenant.** The JWT carries `restaurantId` and
+`restaurantSlug`. `enforceTenantMatch` rejects a token from restaurant A used
+against restaurant B. `SUPER_ADMIN` (which has `restaurant: null`) passes through
+any tenant by design.
+
+**4. Uniqueness is per restaurant.** What used to be globally unique is now
+compound: `(restaurant, tableNo)`, `(restaurant, dishId)`, `(restaurant, email)`,
+`(restaurant, googleId)`. So every restaurant has a table 1 and a dish 1, and one
+person can be staff at two restaurants with a different role at each.
 
 ---
 
 ## Folder Structure
 
 ```
-hotelManagementSystem/
-├── app.js                        # Express app setup
+smartHotel/
+├── app.js                        # Express app + route mounts
 ├── server.js                     # Entry point
 ├── config/
 │   ├── database.js               # MongoDB connection
-│   └── passport.js               # Google OAuth2 strategy
-├── entities/                     # Mongoose models
-│   ├── user.entity.js            # Customer (table session)
-│   ├── staff.entity.js           # Admin / Staff
+│   └── passport.js               # Google OAuth2, tenant read from signed state
+├── entities/
+│   ├── restaurant.entity.js      # the tenant itself
+│   ├── user.entity.js            # customer (table session)
+│   ├── staff.entity.js           # SUPER_ADMIN / ADMIN / STAFF
 │   ├── table.entity.js
 │   ├── order.entity.js
 │   ├── dish.entity.js
@@ -34,21 +73,30 @@ hotelManagementSystem/
 ├── controllers/
 │   ├── user.controller.js
 │   ├── restaurant.controller.js
-│   └── staffAuth.controller.js
+│   ├── staffAuth.controller.js
+│   └── platform.controller.js    # SUPER_ADMIN console
 ├── services/
 │   ├── user.service.js
-│   └── restaurant.service.js
+│   ├── restaurant.service.js
+│   ├── platform.service.js
+│   └── qr.service.js
 ├── routes/
-│   ├── user.routes.js
-│   ├── restaurant.routes.js
-│   └── staffAuth.routes.js
+│   ├── auth.routes.js            # global OAuth callback
+│   ├── platform.routes.js        # /api/platform
+│   ├── user.routes.js            # /api/r/:slug/user
+│   ├── restaurant.routes.js      # /api/r/:slug/restaurant
+│   └── staffAuth.routes.js       # /api/r/:slug/auth
 ├── middlewares/
-│   └── staffAuth.middleware.js   # JWT authenticate + role authorize
+│   ├── tenant.middleware.js      # resolveTenant + enforceTenantMatch
+│   └── staffAuth.middleware.js   # authenticate + authorize + requireSuperAdmin
+├── scripts/
+│   └── migrate-to-multitenant.js # one-time upgrade for an existing database
 └── utils/
-    ├── jwt.js
+    ├── tenantScope.js            # THE isolation layer — scoped(restaurantId)
+    ├── tenantProvision.js        # create + seed a restaurant, or destroy one
+    ├── jwt.js                    # tenant-stamped tokens + signed OAuth state
     ├── allergyChecker.js
     ├── helpers.js
-    ├── ingredientsManipulator.js
     └── seed.js
 ```
 
@@ -65,10 +113,14 @@ npm install
 ### 2. Configure environment
 
 ```bash
-cp .env.example .env
+cp env.example .env
 ```
 
-Fill in `.env` (see Environment Variables section below).
+Set at minimum `MONGO_URI_LOCAL`, `JWT_SECRET`, `FRONTEND_URL`, the Google keys,
+and `PLATFORM_ADMIN_EMAIL`.
+
+> `FRONTEND_URL` must be `http://localhost:5173` for local Vite — it drives CORS,
+> the post-login redirect, and the base of every table QR code.
 
 ### 3. Google OAuth2 setup
 
@@ -76,17 +128,57 @@ Fill in `.env` (see Environment Variables section below).
 2. Create a project → **APIs & Services** → **Credentials** → **Create OAuth 2.0 Client ID**
 3. Application type: **Web application**
 4. Authorized redirect URI: `http://localhost:5000/api/auth/google/callback`
+
+   Only **one** redirect URI is needed no matter how many restaurants exist — the
+   tenant travels in the signed `state` parameter, not the callback URL.
 5. Copy **Client ID** and **Client Secret** into `.env`
 
-### 4. Run
+### 4. Seed the platform
 
 ```bash
-# Development
-npm run dev
-
-# Production
-npm start
+npm run seed
 ```
+
+This creates the SUPER_ADMIN from `PLATFORM_ADMIN_EMAIL`. Optionally set
+`SEED_RESTAURANT_NAME` to also create a first restaurant in the same step.
+
+### 5. Run
+
+```bash
+npm run dev     # development
+npm start       # production
+```
+
+### 6. Create restaurants
+
+Sign in at `{FRONTEND_URL}/platform/login` with the platform admin's Google
+account, then **Add restaurant**. Each one is created with its tables, a starter
+menu and its first ADMIN in a single step.
+
+---
+
+## Upgrading an existing single-restaurant database
+
+The old schema has no `restaurant` field and has global unique indexes
+(`tableNo_1`, `dishId_1`, `email_1`, `googleId_1`) that make a second restaurant
+impossible. Run the migration once:
+
+```bash
+# preview, writes nothing
+node scripts/migrate-to-multitenant.js --name "Bella Vista" --dry-run
+
+# apply
+npm run migrate:multitenant -- --name "Bella Vista" --slug bella-vista
+```
+
+It creates the restaurant, drops the legacy indexes, backfills `restaurant` on
+every existing document, and builds the new compound indexes. It is idempotent.
+
+Existing SUPER_ADMIN rows keep `restaurant: null`; all other staff are attached
+to the new restaurant.
+
+> **Reprint your table QR codes afterwards.** They now encode
+> `/r/<slug>/user/table-select/<tableNo>`; the old codes have no tenant in them.
 
 ---
 
@@ -95,158 +187,60 @@ npm start
 | Variable | Description |
 |---|---|
 | `PORT` | Server port (default: 5000) |
-| `MONGO_URI` | MongoDB connection string |
+| `MONGO_URI` / `MONGO_URI_LOCAL` | MongoDB connection string |
 | `GOOGLE_CLIENT_ID` | From Google Cloud Console |
 | `GOOGLE_CLIENT_SECRET` | From Google Cloud Console |
-| `GOOGLE_CALLBACK_URL` | Must match what's set in Google Console |
-| `JWT_SECRET` | Long random string for signing tokens |
+| `GOOGLE_CALLBACK_URL` | One global callback; must match Google Console |
+| `JWT_SECRET` | Long random string; also signs the OAuth `state` |
 | `JWT_EXPIRES_IN` | Token expiry e.g. `8h`, `1d` |
-| `FRONTEND_URL` | Where to redirect after login (e.g. `http://localhost:3000`) |
+| `FRONTEND_URL` | Frontend origin — CORS, login redirect, QR base |
+| `PLATFORM_ADMIN_EMAIL` | Google email seeded as SUPER_ADMIN |
+| `PLATFORM_ADMIN_NAME` | Display name for that account |
+| `SEED_RESTAURANT_NAME` | Optional: create one restaurant while seeding |
+| `SEED_RESTAURANT_SLUG` | Optional: its slug (derived from name if blank) |
+| `SEED_RESTAURANT_TABLES` | Optional: table count (default 10) |
+| `SEED_ADMIN_EMAIL` | Optional: that restaurant's first ADMIN |
+| `SKIP_SEED` | Set to `1` to skip seeding on `npm install` |
 
 ---
 
 ## Authentication Flow (Staff / Admin)
 
 ```
-Admin pre-registers staff email+role via POST /api/auth/staff
-          ↓
-Staff opens GET /api/auth/google in browser
-          ↓
-Google login page → staff signs in
-          ↓
-Google redirects to /api/auth/google/callback
-          ↓
-Backend issues JWT → redirects to FRONTEND_URL/auth/callback?token=...
-          ↓
-Frontend stores token → sends as Authorization: Bearer <token> on all requests
+Platform admin creates the restaurant  ->  its first ADMIN is seeded
+          v
+That ADMIN pre-registers staff via POST /api/r/<slug>/auth/staff
+          v
+Staff opens GET /api/r/<slug>/auth/google
+          v
+Backend signs state = { slug } and sends the browser to Google
+          v
+Google redirects to the ONE callback: /api/auth/google/callback?state=...
+          v
+Strategy verifies state, looks the email up WITHIN that restaurant only
+          v
+JWT stamped with restaurantId + restaurantSlug
+          v
+Redirect to FRONTEND_URL/r/<slug>/auth/callback?token=...
+          v
+Frontend stores it under token:<slug> and sends Authorization: Bearer <token>
 ```
 
-> **First Admin:** Pre-register the first ADMIN directly in MongoDB, or temporarily open the `POST /api/auth/staff` route, create the admin, then re-protect it.
+A token issued for `bella-vista` presented to `/api/r/other-place/...` is rejected
+with 403 by `enforceTenantMatch`.
 
 ---
 
 ## API Reference
 
-Base URL: `http://localhost:5000/api`
+See [api-doc.md](./api-doc.md) for the full endpoint tables.
 
-### Auth — `/api/auth`
+Quick shape:
 
-| Method | Endpoint | Auth | Description |
-|---|---|---|---|
-| GET | `/auth/google` | Public | Redirect to Google login |
-| GET | `/auth/google/callback` | Public | Google callback — issues JWT |
-| GET | `/auth/failed` | Public | Login failure response |
-| GET | `/auth/me` | Any staff | Get own token payload |
-| GET | `/auth/staff` | ADMIN | List all staff |
-| POST | `/auth/staff` | ADMIN | Pre-register a staff member |
-| PATCH | `/auth/staff/:id/activate` | ADMIN | Activate staff account |
-| PATCH | `/auth/staff/:id/deactivate` | ADMIN | Deactivate staff account |
-| DELETE | `/auth/staff/:id` | ADMIN | Hard delete staff account |
-
-**POST `/auth/staff` body:**
-```json
-{
-  "name": "Riya Sharma",
-  "email": "riya@restaurant.com",
-  "role": "STAFF"
-}
-```
-
----
-
-### Customer — `/api/user`
-
-All public (no auth required).
-
-| Method | Endpoint | Description |
-|---|---|---|
-| POST | `/user/login-table` | Start table session (name + phone) |
-| POST | `/user/set-allergies` | Set customer allergies |
-| GET | `/user/menu` | Get full menu |
-| POST | `/user/order` | Place an order |
-| POST | `/user/clear-table` | End session, free table |
-
-**POST `/user/login-table` body:**
-```json
-{ "tableNo": 5, "name": "Amit", "phoneNo": "9876543210" }
-```
-
-**POST `/user/order` body:**
-```json
-{ "tableNo": 5, "dishes": ["<dishId>", "<dishId>"] }
-```
-
----
-
-### Restaurant — `/api/restaurant`
-
-All require `Authorization: Bearer <token>` except `/tables`.
-
-| Method | Endpoint | Role | Description |
-|---|---|---|---|
-| GET | `/restaurant/orders` | ADMIN, STAFF | All orders |
-| POST | `/restaurant/order-status` | ADMIN, STAFF | Update order status |
-| GET | `/restaurant/alerts` | ADMIN, STAFF | Active allergy alerts |
-| GET | `/restaurant/tables` | Public | All table statuses |
-| GET | `/restaurant/inventory` | ADMIN, STAFF | View inventory |
-| POST | `/restaurant/add-inventory` | ADMIN | Add inventory items |
-| PUT | `/restaurant/inventory/:id` | ADMIN | Update inventory item |
-| DELETE | `/restaurant/inventory/:id` | ADMIN | Delete inventory item |
-| POST | `/restaurant/add-dish` | ADMIN | Add a dish |
-| PUT | `/restaurant/update-dish` | ADMIN | Update a dish |
-| DELETE | `/restaurant/dish/:id` | ADMIN | Delete a dish |
-
-**POST `/restaurant/order-status` body:**
-```json
-{ "orderId": "<id>", "status": "preparing" }
-```
-Valid statuses: `pending` → `preparing` → `served`
-
-**POST `/restaurant/add-dish` body:**
-```json
-{
-  "name": "Paneer Butter Masala",
-  "price": 180,
-  "ingredients": ["paneer", "butter", "tomato"],
-  "recipe": "...",
-  "imageUrl": "https://..."
-}
-```
-
----
-
-## Order & Table Flows
-
-```
-Order:  created → pending → preparing → served
-Table:  free → occupied → free
-```
-
----
-
-## Role Summary
-
-| Role | Can Do |
+| Prefix | Scope |
 |---|---|
-| ADMIN | Everything: manage staff, dishes, inventory, orders |
-| STAFF | View and update orders, view alerts and inventory, view tables |
-| Customer | Login, view menu, place order, clear table (no auth token) |
-
----
-
-## Protecting Routes (usage pattern)
-
-```js
-const { authenticate, authorize } = require("../middlewares/staffAuth.middleware");
-
-router.get("/orders",    authenticate, authorize("ADMIN", "STAFF"), controller.getOrders);
-router.post("/add-dish", authenticate, authorize("ADMIN"),          controller.addDish);
-```
-
----
-
-## Docker
-
-```bash
-docker-compose up --build
-```
+| `/api/platform/...` | SUPER_ADMIN — manage restaurants |
+| `/api/auth/...` | Shared OAuth callback |
+| `/api/r/:slug/auth/...` | Staff login + staff management for one restaurant |
+| `/api/r/:slug/restaurant/...` | Staff/admin operations for one restaurant |
+| `/api/r/:slug/user/...` | Public customer/kiosk surface for one restaurant |
