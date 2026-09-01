@@ -1,10 +1,11 @@
 const QRCode = require("qrcode");
 const sharp = require("sharp");
 
-exports.generateTableQRCode = async (tableNo) => {
+exports.generateTableQRCode = async (tableNo, token) => {
   try {
     const serviceUrl = process.env.FRONTEND_URL;
-    const qrText = `${serviceUrl}/user/table-select/${tableNo}`;
+    // The QR encodes the opaque token, never the real table number.
+    const qrText = `${serviceUrl}/user/table-select/${token}`;
 
     // 1. Generate clean QR
     const qrBuffer = await QRCode.toBuffer(qrText, {

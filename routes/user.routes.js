@@ -7,7 +7,8 @@ const userController = require("../controllers/user.controller");
 router.post("/login-table", userController.loginTable);
 
 // browse-first: GET table → open menu without guest details (details at order confirm). Optional ?redirect=1
-router.get("/table-select/:tableNo", userController.selectTableQuickBrowse);
+// :token accepts either the customer-facing QR token or (kiosk staff device) a plain tableNo — see resolveTableNo in user.service.js
+router.get("/table-select/:token", userController.selectTableQuickBrowse);
 
 // set allergies
 router.post("/set-allergies", userController.setAllergies);

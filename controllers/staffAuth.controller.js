@@ -25,8 +25,9 @@ exports.registerStaff = async (req, res) => {
     const exists = await Staff.findOne({ email });
     if (exists) return res.status(409).json({ message: "Email already registered" });
 
-    // googleId is null until they first log in with Google
-    const staff = await Staff.create({ name, email, role, googleId: null });
+    // googleId stays unset until they first log in with Google — must be omitted, not
+    // set to null, or the sparse unique index collides once a second staff is pre-registered.
+    const staff = await Staff.create({ name, email, role });
     res.status(201).json({ message: "Staff pre-registered", id: staff._id, role: staff.role, email: staff.email });
   } catch (err) {
     res.status(500).json({ message: err.message });
