@@ -4,8 +4,7 @@ const staffSchema = new mongoose.Schema({
   googleId: {
     type: String,
     unique: true,
-    sparse: true, // allows multiple null values (pre-registered but not yet logged in)
-    default: null,
+    sparse: true, // omitted (not null) until first Google login, so multiple pre-registered staff can coexist
   },
 
   name: {

@@ -6,6 +6,7 @@ require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 const Table = require('../entities/table.entity');
 const Staff = require('../entities/staff.entity');
 const Dish = require('../entities/dish.entity');
+const { generateTableToken } = require('./tableToken');
 
 const dishes = require(path.join(__dirname, 'dishes.json'));
 
@@ -53,7 +54,7 @@ const seedTables = async () => {
     if (existingTables === 0) {
       const tables = [];
       for (let i = 1; i <= 10; i++) {
-        tables.push({ tableNo: i, status: 'available' });
+        tables.push({ tableNo: i, status: 'available', token: generateTableToken() });
       }
       await Table.insertMany(tables);
       console.log('✅ 10 tables seeded');

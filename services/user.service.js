@@ -4,6 +4,7 @@ const Order = require("../entities/order.entity");
 const Dish = require("../entities/dish.entity");
 const { checkAllergyRisk } = require("../utils/allergyChecker");
 const { isTableValid } = require("../utils/helpers");
+const { generateTableToken } = require("../utils/tableToken");
 const mongoose = require("mongoose");
 
 const resolveDishIds = async (rawDishes) => {
@@ -61,7 +62,7 @@ exports.loginTable = async (data) => {
 
   let table = await Table.findOne({ tableNo });
   if (!table) {
-    table = await Table.create({ tableNo });
+    table = await Table.create({ tableNo, token: generateTableToken() });
   }
 
   // Claim the table atomically — only succeeds if currently free
@@ -199,11 +200,17 @@ exports.orderFood = async (data) => {
     });
   }
 
-  await Table.findOneAndUpdate(
-    { tableNo },
-    { allergyAlert: Boolean(order.allergyAlert) },
-    { new: true }
-  );
+  // Only ever raise the table's flag here, never clear it — the customer's declared
+  // allergies (set via setAllergies) must stay flagged even if THIS particular order's
+  // dishes happen not to match an ingredient keyword. The flag is cleared when the
+  // session actually ends (clearTable / markTableAvailable / completeMeal).
+  if (order.allergyAlert) {
+    await Table.findOneAndUpdate(
+      { tableNo },
+      { allergyAlert: true },
+      { new: true }
+    );
+  }
 
   const populated = await Order.findById(order._id).populate("dishes").populate("lineItems.dish");
 
@@ -246,14 +253,28 @@ exports.getTableOrders = async (tableNo) => {
 };
 
 /**
+ * Resolve the public identifier from a QR/kiosk link to a real tableNo.
+ * Accepts either the legacy plain table number (kiosk staff device, which already
+ * lists real tableNo values) or the opaque customer-facing token (printed QR codes).
+ */
+const resolveTableNo = async (identifier) => {
+  const asNumber = Number(identifier);
+  if (Number.isInteger(asNumber) && asNumber > 0) return asNumber;
+
+  const table = await Table.findOne({ token: String(identifier) }).select({ tableNo: 1 });
+  if (!table) throw new Error("Invalid table link");
+  return table.tableNo;
+};
+
+/**
  * GET table-select (quick entry): claim table immediately and start a lightweight user session.
  * Useful for QR-based direct booking where scanning should reserve/occupy the table in staff panel.
  */
-exports.selectTableQuickBrowse = async (tableNo) => {
-  const n = Number(tableNo);
+exports.selectTableQuickBrowse = async (identifier) => {
+  const n = await resolveTableNo(identifier);
   if (!isTableValid(n)) throw new Error("Invalid table number");
   let table = await Table.findOne({ tableNo: n }).populate("currentUser");
-  if (!table) table = await Table.create({ tableNo: n });
+  if (!table) table = await Table.create({ tableNo: n, token: generateTableToken() });
 
   // Idempotent behavior: if already occupied with a seated user, keep that active session.
   if (table.status === "occupied" && table.currentUser) {

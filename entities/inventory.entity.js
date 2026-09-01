@@ -29,7 +29,8 @@ const inventorySchema = new mongoose.Schema({
 
   lowStockThreshold: {
     type: Number,
-    default: 10
+    default: 10,
+    min: 0
   },
 
   expiryDate: {

@@ -43,7 +43,7 @@ exports.getTableSession = async (req, res) => {
 /** Quick table entry: returns JSON for API callers, redirects browser document requests to customer menu. */
 exports.selectTableQuickBrowse = async (req, res) => {
   try {
-    const result = await userService.selectTableQuickBrowse(Number(req.params.tableNo));
+    const result = await userService.selectTableQuickBrowse(req.params.token);
     const base = process.env.CUSTOMER_APP_ORIGIN || process.env.FRONTEND_ORIGIN;
     const isDocRequest = req.get("sec-fetch-dest") === "document";
     const wantsRedirect = req.query.redirect === "1" || (req.query.redirect == null && isDocRequest);

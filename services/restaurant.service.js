@@ -4,10 +4,19 @@ const Inventory = require("../entities/inventory.entity");
 const Table = require("../entities/table.entity");
 const User = require("../entities/user.entity");
 const { checkAllergyRisk } = require("../utils/allergyChecker");
+const { generateTableToken } = require("../utils/tableToken");
 const mongoose = require("mongoose");
 
 const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const ORDER_STATUSES = ["created", "confirmed", "preparing", "served", "completed"];
+/** When the whole order's status changes, cascade this status to every line item. */
+const ORDER_TO_LINE_ITEM_STATUS = {
+  created: "queued",
+  confirmed: "queued",
+  preparing: "preparing",
+  served: "served",
+  completed: "served"
+};
 const isHttpUrl = (value) => {
   if (!value) return false;
   try {
@@ -97,15 +106,22 @@ exports.updateOrderStatus = async (data) => {
     throw new Error(`Invalid status. Must be one of: ${ORDER_STATUSES.join(", ")}`);
   }
 
-  const order = await Order.findByIdAndUpdate(
-    orderId,
-    { status },
-    { new: true, runValidators: true }
-  );
-
+  const order = await Order.findById(orderId);
   if (!order) throw new Error("Order not found");
 
-  return { message: "Order status updated", order };
+  order.status = status;
+
+  const lineItemStatus = ORDER_TO_LINE_ITEM_STATUS[status];
+  order.lineItems.forEach((lineItem) => {
+    lineItem.status = lineItemStatus;
+  });
+  order.markModified("lineItems");
+
+  await order.save();
+
+  const populated = await Order.findById(order._id).populate("dishes").populate("lineItems.dish");
+
+  return { message: "Order status updated", order: populated || order };
 };
 
 exports.createOrder = async (data) => {
@@ -123,7 +139,7 @@ exports.createOrder = async (data) => {
 
   // Ensure table exists
   let table = await Table.findOne({ tableNo });
-  if (!table) table = await Table.create({ tableNo });
+  if (!table) table = await Table.create({ tableNo, token: generateTableToken() });
 
   // Ensure there is a currentUser to attach allergies/session info
   let user = null;
@@ -308,6 +324,15 @@ exports.addItemsToInventory = async (data) => {
     throw new Error("No items provided");
   }
 
+  for (const item of items) {
+    if (Number(item.quantity) < 0) {
+      throw new Error(`Quantity cannot be negative (${item.name || "item"})`);
+    }
+    if (item.lowStockThreshold !== undefined && Number(item.lowStockThreshold) < 0) {
+      throw new Error(`Low stock threshold cannot be negative (${item.name || "item"})`);
+    }
+  }
+
   // Check for duplicate names in the incoming data itself
   const incomingNames = items.map(i => i.name?.trim().toLowerCase());
   const hasDuplicates = incomingNames.length !== new Set(incomingNames).size;
@@ -394,7 +419,7 @@ exports.increaseTableCount = async () => {
 
   const toInsert = [];
   for (let tableNo = start; tableNo <= end; tableNo += 1) {
-    toInsert.push({ tableNo });
+    toInsert.push({ tableNo, token: generateTableToken() });
   }
 
   if (toInsert.length) {
@@ -456,20 +481,53 @@ exports.deleteTableById = async (id) => {
 };
 
 exports.getNotifications = async () => {
-  const [newOrders, mealCompleted, waiterRequests] = await Promise.all([
+  const [newOrders, mealCompleted, waiterRequests, allergyOrders, allergyTables] = await Promise.all([
     Order.countDocuments({ status: { $in: ["created", "confirmed"] } }),
     Order.countDocuments({ status: "completed" }),
-    Table.countDocuments({ waiterRequested: true })
+    Table.countDocuments({ waiterRequested: true }),
+    Order.distinct("tableNo", { allergyAlert: true }),
+    Table.distinct("tableNo", { allergyAlert: true })
   ]);
+
+  const allergyAlerts = new Set([...allergyOrders, ...allergyTables].map(Number)).size;
 
   return {
     newOrders,
     mealCompleted,
-    waiterRequests
+    waiterRequests,
+    allergyAlerts
   };
 };
 
+/** Returns the table's QR token, generating and persisting one if it predates the token rollout. */
+exports.getOrCreateTableToken = async (tableNo) => {
+  const table = await Table.findOne({ tableNo }).select({ token: 1 });
+  if (!table) throw new Error("Table not found");
+  if (table.token) return table.token;
+
+  table.token = generateTableToken();
+  await table.save();
+  return table.token;
+};
+
+exports.resolveWaiterCall = async (tableNo) => {
+  const table = await Table.findOneAndUpdate(
+    { tableNo, waiterRequested: true },
+    { waiterRequested: false, lastStatusChangedAt: new Date() },
+    { new: true }
+  );
+  if (!table) throw new Error("No active waiter call for this table");
+  return { message: "Waiter call resolved", table };
+};
+
 exports.markTableAvailable = async (tableNo) => {
+  // Freeing the table ends the dining session — any order still in flight for it
+  // would otherwise be orphaned (no currentUser, no occupiedSince) and linger forever.
+  const completedOrders = await Order.updateMany(
+    { tableNo, status: { $ne: "completed" } },
+    { status: "completed" }
+  );
+
   const table = await Table.findOneAndUpdate(
     { tableNo },
     {
@@ -483,7 +541,11 @@ exports.markTableAvailable = async (tableNo) => {
     { new: true }
   );
   if (!table) throw new Error("Table not found");
-  return { message: "Table marked available", table };
+  return {
+    message: "Table marked available",
+    table,
+    autoCompletedOrders: completedOrders.modifiedCount || 0
+  };
 };
 
 exports.getManagerMetrics = async () => {
@@ -612,7 +674,10 @@ exports.updateInventoryItem = async (id, data) => {
   }
   if (data.unit !== undefined) updates.unit = data.unit;
   if (data.category !== undefined) updates.category = data.category;
-  if (data.lowStockThreshold !== undefined) updates.lowStockThreshold = data.lowStockThreshold;
+  if (data.lowStockThreshold !== undefined) {
+    if (data.lowStockThreshold < 0) throw new Error("Low stock threshold cannot be negative");
+    updates.lowStockThreshold = data.lowStockThreshold;
+  }
   if (data.expiryDate !== undefined) updates.expiryDate = data.expiryDate;
 
   if (!Object.keys(updates).length) {

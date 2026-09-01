@@ -24,6 +24,7 @@ router.delete("/inventory/:id",  authenticate, authorize("ADMIN"), restaurantCon
 // tables — public (QR scan needs this)
 router.get("/tables", restaurantController.getTables);
 router.patch("/tables/:tableNo/available", authenticate, authorize("ADMIN", "STAFF"), restaurantController.markTableAvailable);
+router.patch("/tables/:tableNo/resolve-waiter", authenticate, authorize("ADMIN", "STAFF"), restaurantController.resolveWaiterCall);
 
 // tables management — ADMIN only
 router.get("/tables/count", authenticate, authorize("ADMIN"), restaurantController.getTableCount);

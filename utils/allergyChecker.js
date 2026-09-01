@@ -113,6 +113,16 @@ function localAllergyCheck(userAllergies, ingredientNames) {
   return { alert: matches.length > 0, matches };
 }
 
+const GEMINI_TIMEOUT_MS = 6000;
+
+function withTimeout(promise, ms, label) {
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
 // ─── Gemini checker ───────────────────────────────────────────────────────────
 async function geminiAllergyCheck(userAllergies, ingredientNames) {
   const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
@@ -141,7 +151,7 @@ Respond ONLY with a valid JSON object, no markdown, no explanation, exactly this
 
 If no risks found, respond: {"alert":false,"matches":[]}`;
 
-  const result = await model.generateContent(prompt);
+  const result = await withTimeout(model.generateContent(prompt), GEMINI_TIMEOUT_MS, "Gemini allergy check");
   const text = result.response.text().trim();
 
   // Strip any accidental markdown fences
@@ -154,6 +164,13 @@ If no risks found, respond: {"alert":false,"matches":[]}`;
   };
 }
 
+// Feature flag: Gemini is only called when BOTH a key is configured AND this is
+// explicitly turned on. Keeps allergy checking (and order placement, which depends
+// on it) fully local and network-free when no working Gemini key is available.
+const GEMINI_ENABLED =
+  String(process.env.ENABLE_GEMINI_ALLERGY_CHECK || "").toLowerCase() === "true" &&
+  Boolean(process.env.GEMINI_API_KEY);
+
 // ─── Main export — tries Gemini, falls back to local ─────────────────────────
 exports.checkAllergyRisk = async (userAllergies = [], ingredientNames = []) => {
   if (!userAllergies.length || !ingredientNames.length) {
@@ -163,8 +180,7 @@ exports.checkAllergyRisk = async (userAllergies = [], ingredientNames = []) => {
   // Always run local check first — instant
   const localResult = localAllergyCheck(userAllergies, ingredientNames);
 
-  if (!process.env.GEMINI_API_KEY) {
-    console.warn("[AllergyChecker] No GEMINI_API_KEY — using local matcher only");
+  if (!GEMINI_ENABLED) {
     return { ...localResult, engine: "local" };
   }
 
